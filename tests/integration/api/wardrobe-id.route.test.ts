@@ -28,7 +28,7 @@ describe("DELETE /api/wardrobe/[id]", () => {
     const body = await res.json();
     expect(body).toEqual({ ok: true });
 
-    expect(getWardrobeItem("w001")).toBeNull();
+    expect(await getWardrobeItem("w001")).toBeNull();
     expect(existsSync(filePath)).toBe(false);
   });
 

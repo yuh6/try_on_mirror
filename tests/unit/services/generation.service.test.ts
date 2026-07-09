@@ -108,7 +108,7 @@ describe("generation.service · createGeneration", () => {
     await expect(
       createGeneration({ personImage: TINY_PNG_DATA_URI, clothingId: "ghost" })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(db.select().from(generations).all()).toEqual([]);
+    expect(await db.select().from(generations).all()).toEqual([]);
     expect(mockedGenerateImage).not.toHaveBeenCalled();
   });
 
@@ -135,7 +135,7 @@ describe("generation.service · createGeneration", () => {
       })
     ).rejects.toMatchObject({ code: "UPSTREAM" });
 
-    const rows = db.select().from(generations).all();
+    const rows = await db.select().from(generations).all();
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("failed");
     expect(rows[0].outputUrl).toBeNull();
@@ -154,7 +154,7 @@ describe("generation.service · createGeneration", () => {
       })
     ).rejects.toMatchObject({ code: "UPSTREAM_TIMEOUT" });
 
-    const rows = db.select().from(generations).all();
+    const rows = await db.select().from(generations).all();
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("failed");
     expect(rows[0].errorMessage).toContain("超时");

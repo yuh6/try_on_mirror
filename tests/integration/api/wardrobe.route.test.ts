@@ -66,7 +66,7 @@ describe("POST /api/wardrobe", () => {
     const body = await res.json();
     expect(body.item.name).toBe("新单品");
     expect(body.item.id.startsWith("wu_")).toBe(true);
-    expect(db.select().from(wardrobeItems).all()).toHaveLength(1);
+    expect(await db.select().from(wardrobeItems).all()).toHaveLength(1);
   });
 
   it("name 缺失 → zod 400", async () => {

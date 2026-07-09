@@ -5,6 +5,7 @@ import { AppError } from "@/lib/errors";
 import { createGeneration } from "@/lib/services/generation.service";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const GenerateBodySchema = z
   .object({

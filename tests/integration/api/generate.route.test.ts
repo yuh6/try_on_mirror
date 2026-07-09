@@ -41,7 +41,7 @@ describe("POST /api/generate", () => {
     expect(body.outputUrl).toBe("https://mock/o.png");
     expect(body.generationId.startsWith("gen_")).toBe(true);
 
-    const rows = db.select().from(generations).all();
+    const rows = await db.select().from(generations).all();
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("success");
     expect(rows[0].clothingSource).toBe("uploaded");
@@ -54,7 +54,7 @@ describe("POST /api/generate", () => {
       post({ personImage: TINY_PNG_DATA_URI, clothingId: "w001" })
     );
     expect(res.status).toBe(200);
-    const rows = db.select().from(generations).all();
+    const rows = await db.select().from(generations).all();
     expect(rows[0].clothingSource).toBe("wardrobe");
     expect(rows[0].clothingRef).toBe("w001");
   });
@@ -81,7 +81,7 @@ describe("POST /api/generate", () => {
       post({ personImage: TINY_PNG_DATA_URI, clothingId: "ghost" })
     );
     expect(res.status).toBe(404);
-    expect(db.select().from(generations).all()).toEqual([]);
+    expect(await db.select().from(generations).all()).toEqual([]);
   });
 
   it("上游失败 → 502 且落库 status=failed", async () => {
@@ -93,7 +93,7 @@ describe("POST /api/generate", () => {
       })
     );
     expect(res.status).toBe(502);
-    const rows = db.select().from(generations).all();
+    const rows = await db.select().from(generations).all();
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("failed");
   });
@@ -109,7 +109,7 @@ describe("POST /api/generate", () => {
       })
     );
     expect(res.status).toBe(504);
-    const rows = db.select().from(generations).all();
+    const rows = await db.select().from(generations).all();
     expect(rows[0].status).toBe("failed");
   });
 

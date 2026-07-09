@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { existsSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { db, sqlite } from "../../helpers/db";
+import { db } from "../../helpers/db";
 import {
   seedCategories,
   seedTags,
@@ -79,14 +79,14 @@ describe("wardrobe.service · listWardrobe", () => {
 });
 
 describe("wardrobe.service · getWardrobeItem", () => {
-  it("命中返回行", () => {
+  it("命中返回行", async () => {
     seedWardrobeItem({ id: "w001", name: "衫", categoryId: "top", file: "w001.png" });
-    const row = getWardrobeItem("w001");
+    const row = await getWardrobeItem("w001");
     expect(row?.id).toBe("w001");
   });
 
-  it("不存在返回 null", () => {
-    expect(getWardrobeItem("nope")).toBeNull();
+  it("不存在返回 null", async () => {
+    expect(await getWardrobeItem("nope")).toBeNull();
   });
 });
 
@@ -103,7 +103,7 @@ describe("wardrobe.service · createWardrobeItem", () => {
     expect(item.file.endsWith(".png")).toBe(true);
     expect(item.url).toBe(`/wardrobe/${item.file}`);
     // DB 中确实有一行
-    expect(getWardrobeItem(item.id)).not.toBeNull();
+    expect(await getWardrobeItem(item.id)).not.toBeNull();
     // 文件确实写到了 WARDROBE_DIR
     const filePath = path.join(WARDROBE_DIR, item.file);
     expect(existsSync(filePath)).toBe(true);
@@ -217,14 +217,10 @@ describe("wardrobe.service · createWardrobeItem", () => {
   });
 
   it("事务失败时回滚已落盘文件", async () => {
-    // 让 sqlite.transaction 抛错 —— 触发 catch 分支的 unlink
+    // 让 db.transaction 抛错 —— 触发 catch 分支的 unlink
     const txSpy = vi
-      .spyOn(sqlite, "transaction")
-      .mockImplementationOnce(((_fn: unknown) => {
-        return () => {
-          throw new Error("模拟事务失败");
-        };
-      }) as unknown as typeof sqlite.transaction);
+      .spyOn(db, "transaction")
+      .mockRejectedValueOnce(new Error("模拟事务失败"));
 
     // 记录 WARDROBE_DIR 里事务前的文件数
     const { readdirSync } = await import("node:fs");
@@ -252,7 +248,7 @@ describe("wardrobe.service · deleteWardrobeItem", () => {
     const filePath = path.join(WARDROBE_DIR, "w001.png");
     expect(existsSync(filePath)).toBe(true);
     await deleteWardrobeItem("w001");
-    expect(getWardrobeItem("w001")).toBeNull();
+    expect(await getWardrobeItem("w001")).toBeNull();
     expect(existsSync(filePath)).toBe(false);
   });
 
@@ -270,7 +266,7 @@ describe("wardrobe.service · deleteWardrobeItem", () => {
     await fs.unlink(filePath);
     // 再删应不抛
     await expect(deleteWardrobeItem("w001")).resolves.toBeUndefined();
-    expect(getWardrobeItem("w001")).toBeNull();
+    expect(await getWardrobeItem("w001")).toBeNull();
   });
 
   it("级联删除单品标签关联行", async () => {
@@ -283,19 +279,19 @@ describe("wardrobe.service · deleteWardrobeItem", () => {
     });
     await deleteWardrobeItem("w001");
     // 关联表因 ON DELETE CASCADE 应为空
-    const remaining = db.select().from(wardrobeItemTags).all();
+    const remaining = await db.select().from(wardrobeItemTags).all();
     expect(remaining).toEqual([]);
   });
 
   it("file 字段含路径分隔符 → INTERNAL 拒绝", async () => {
     // 手工写入非法 file 值绕过 create 校验
-    db.insert(wardrobeItems).values({
+    await db.insert(wardrobeItems).values({
       id: "w_evil",
       name: "恶意",
       categoryId: "top",
       file: "../etc/passwd",
       createdAt: new Date(),
-    }).run();
+    });
     await expect(deleteWardrobeItem("w_evil")).rejects.toMatchObject({
       code: "INTERNAL",
     });
@@ -319,26 +315,26 @@ describe("wardrobe.service · getWardrobeItemAsDataUri", () => {
   });
 
   it("file 字段含路径穿越（../）→ INTERNAL 拒绝", async () => {
-    db.insert(wardrobeItems).values({
+    await db.insert(wardrobeItems).values({
       id: "w_evil",
       name: "恶意",
       categoryId: "top",
       file: "../../etc/passwd",
       createdAt: new Date(),
-    }).run();
+    });
     await expect(getWardrobeItemAsDataUri("w_evil")).rejects.toMatchObject({
       code: "INTERNAL",
     });
   });
 
   it("file 字段含反斜杠路径 → INTERNAL 拒绝", async () => {
-    db.insert(wardrobeItems).values({
+    await db.insert(wardrobeItems).values({
       id: "w_evil2",
       name: "恶意",
       categoryId: "top",
       file: "sub\\evil.png",
       createdAt: new Date(),
-    }).run();
+    });
     // Windows 上 path.basename 会把反斜杠视作分隔符
     await expect(getWardrobeItemAsDataUri("w_evil2")).rejects.toMatchObject({
       code: "INTERNAL",
@@ -349,13 +345,13 @@ describe("wardrobe.service · getWardrobeItemAsDataUri", () => {
     // 先真实落盘一个 .txt 文件避免 readFile 抛 ENOENT
     await mkdir(WARDROBE_DIR, { recursive: true });
     await writeFile(path.join(WARDROBE_DIR, "w_bad.txt"), Buffer.from("hi"));
-    db.insert(wardrobeItems).values({
+    await db.insert(wardrobeItems).values({
       id: "w_bad_ext",
       name: "怪扩展",
       categoryId: "top",
       file: "w_bad.txt",
       createdAt: new Date(),
-    }).run();
+    });
     await expect(getWardrobeItemAsDataUri("w_bad_ext")).rejects.toMatchObject({
       code: "INTERNAL",
     });

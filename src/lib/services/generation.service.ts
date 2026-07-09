@@ -110,7 +110,7 @@ export async function createGeneration(
 
   if (clothingSource === "wardrobe") {
     const id = params.clothingId!;
-    const row = getWardrobeItem(id);
+    const row = await getWardrobeItem(id);
     if (!row) throw AppError.notFound(`衣橱中不存在 id: ${id}`);
     clothingRef = id;
     clothing = await getWardrobeItemAsDataUri(id);
@@ -154,19 +154,17 @@ export async function createGeneration(
 
   // 写库（成功/失败都写）
   try {
-    db.insert(generations)
-      .values({
-        id: generationId,
-        personImageHash,
-        clothingSource,
-        clothingRef,
-        outputUrl: outputUrl ?? null,
-        prompt,
-        status: errorForRecord ? "failed" : "success",
-        errorMessage: errorForRecord?.message ?? null,
-        latencyMs,
-      })
-      .run();
+    await db.insert(generations).values({
+      id: generationId,
+      personImageHash,
+      clothingSource,
+      clothingRef,
+      outputUrl: outputUrl ?? null,
+      prompt,
+      status: errorForRecord ? "failed" : "success",
+      errorMessage: errorForRecord?.message ?? null,
+      latencyMs,
+    });
   } catch (err) {
     // 落盘失败不能吞掉上游成功的图片 URL；但报错要冒出来
     console.error("[generation] 写库失败:", err);
@@ -226,7 +224,7 @@ export async function listGenerations(
   const whereExpr =
     conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
 
-  const rows = db
+  const rows = await db
     .select()
     .from(generations)
     .where(whereExpr as SQL<unknown> | undefined)
@@ -245,7 +243,7 @@ export async function listGenerations(
 }
 
 export async function getGeneration(id: string): Promise<GenerationRow | null> {
-  const row = db
+  const row = await db
     .select()
     .from(generations)
     .where(eq(generations.id, id))
@@ -259,7 +257,7 @@ export async function deleteGeneration(id: string): Promise<void> {
     throw AppError.notFound(`生成记录不存在: ${id}`);
   }
   try {
-    db.delete(generations).where(eq(generations.id, id)).run();
+    await db.delete(generations).where(eq(generations.id, id));
   } catch (err) {
     throw AppError.internal("删除生成记录失败", err);
   }
@@ -280,19 +278,17 @@ export async function recordGenerationResult(input: {
   latencyMs: number;
 }): Promise<GenerationRow> {
   const id = `gen_${shortId(10)}`;
-  db.insert(generations)
-    .values({
-      id,
-      personImageHash: input.personImageHash,
-      clothingSource: input.clothingSource,
-      clothingRef: input.clothingRef,
-      outputUrl: input.outputUrl ?? null,
-      prompt: input.prompt,
-      status: input.status,
-      errorMessage: input.errorMessage ?? null,
-      latencyMs: input.latencyMs,
-    })
-    .run();
+  await db.insert(generations).values({
+    id,
+    personImageHash: input.personImageHash,
+    clothingSource: input.clothingSource,
+    clothingRef: input.clothingRef,
+    outputUrl: input.outputUrl ?? null,
+    prompt: input.prompt,
+    status: input.status,
+    errorMessage: input.errorMessage ?? null,
+    latencyMs: input.latencyMs,
+  });
   const row = await getGeneration(id);
   if (!row) throw AppError.internal("record 后无法回读生成行");
   return row;

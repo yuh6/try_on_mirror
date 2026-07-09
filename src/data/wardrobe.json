@@ -6,9 +6,9 @@
     { "id": "outerwear", "name": "外套" }
   ],
   "items": [
-    { "id": "w001", "name": "LV 云朵印花T恤",       "category": "top",   "file": "w001.jpg" },
-    { "id": "w002", "name": "棕色格纹挂脖连衣裙",   "category": "dress", "file": "w002.jpg" },
-    { "id": "w003", "name": "蓝色印花泡泡袖连衣裙", "category": "dress", "file": "w003.jpg" },
-    { "id": "w004", "name": "蓝黑条纹落肩上衣",     "category": "top",   "file": "w004.jpg" }
+    { "id": "wu_DVov5j3hHY", "name": "示例单品 1", "category": "top",       "file": "wu_DVov5j3hHY.jpg" },
+    { "id": "wu_XHwFZzmvJD", "name": "示例单品 2", "category": "dress",     "file": "wu_XHwFZzmvJD.jpg" },
+    { "id": "wu_ctPcCxP80U", "name": "示例单品 3", "category": "outerwear", "file": "wu_ctPcCxP80U.webp" },
+    { "id": "wu_q7i0YlUfyU", "name": "示例单品 4", "category": "bottom",    "file": "wu_q7i0YlUfyU.jpg" }
   ]
 }

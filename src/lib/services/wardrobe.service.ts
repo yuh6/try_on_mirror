@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFile, unlink, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { asc, eq } from "drizzle-orm";
-import { db, sqlite } from "@/db/client";
+import { db } from "@/db/client";
 import {
   categories,
   wardrobeItems,
@@ -61,11 +61,13 @@ const rowToItem = (row: WardrobeItemRow): WardrobeItem => ({
 });
 
 /** 拉出每个单品对应的 tag 列表，按 wardrobeItemId 分组。 */
-function fetchTagsByItemIds(itemIds: string[]): Map<string, WardrobeTag[]> {
+async function fetchTagsByItemIds(
+  itemIds: string[]
+): Promise<Map<string, WardrobeTag[]>> {
   const map = new Map<string, WardrobeTag[]>();
   if (itemIds.length === 0) return map;
   // 简单实现：跑一次 join，避免 IN(...) 拼接的手动风险
-  const rows = db
+  const rows = await db
     .select({
       itemId: wardrobeItemTags.wardrobeItemId,
       tagId: tags.id,
@@ -85,7 +87,7 @@ function fetchTagsByItemIds(itemIds: string[]): Map<string, WardrobeTag[]> {
 }
 
 export async function listWardrobe(options?: { category?: string }) {
-  const cats = db
+  const cats = await db
     .select({ id: categories.id, name: categories.name })
     .from(categories)
     .orderBy(asc(categories.sortOrder), asc(categories.id))
@@ -96,10 +98,10 @@ export async function listWardrobe(options?: { category?: string }) {
     .from(wardrobeItems)
     .orderBy(asc(wardrobeItems.createdAt), asc(wardrobeItems.id));
   const rows = options?.category
-    ? q.where(eq(wardrobeItems.categoryId, options.category)).all()
-    : q.all();
+    ? await q.where(eq(wardrobeItems.categoryId, options.category)).all()
+    : await q.all();
 
-  const tagsByItem = fetchTagsByItemIds(rows.map((r) => r.id));
+  const tagsByItem = await fetchTagsByItemIds(rows.map((r) => r.id));
 
   const items: WardrobeListItem[] = rows.map((row) => {
     const t = tagsByItem.get(row.id);
@@ -114,8 +116,10 @@ export async function listWardrobe(options?: { category?: string }) {
   return { categories: cats, items };
 }
 
-export function getWardrobeItem(id: string): WardrobeItemRow | null {
-  const row = db
+export async function getWardrobeItem(
+  id: string
+): Promise<WardrobeItemRow | null> {
+  const row = await db
     .select()
     .from(wardrobeItems)
     .where(eq(wardrobeItems.id, id))
@@ -124,7 +128,7 @@ export function getWardrobeItem(id: string): WardrobeItemRow | null {
 }
 
 export async function getWardrobeItemAsDataUri(id: string): Promise<string> {
-  const row = getWardrobeItem(id);
+  const row = await getWardrobeItem(id);
   if (!row) {
     throw AppError.notFound(`衣橱中不存在 id: ${id}`);
   }
@@ -194,7 +198,7 @@ export async function createWardrobeItem(
   }
 
   // 校验分类
-  const cat = db
+  const cat = await db
     .select({ id: categories.id })
     .from(categories)
     .where(eq(categories.id, params.categoryId))
@@ -206,10 +210,7 @@ export async function createWardrobeItem(
   // 校验 tagIds
   const tagIds = params.tagIds ?? [];
   if (tagIds.length > 0) {
-    const found = db
-      .select({ id: tags.id })
-      .from(tags)
-      .all()
+    const found = (await db.select({ id: tags.id }).from(tags).all())
       .filter((t) => tagIds.includes(t.id))
       .map((t) => t.id);
     const missing = tagIds.filter((t) => !found.includes(t));
@@ -232,34 +233,31 @@ export async function createWardrobeItem(
   await writeFile(filePath, buffer);
 
   try {
-    const tx = sqlite.transaction(() => {
-      db.insert(wardrobeItems)
-        .values({
-          id,
-          name,
-          categoryId: params.categoryId,
-          file: fileName,
-        })
-        .run();
+    await db.transaction(async (tx) => {
+      await tx.insert(wardrobeItems).values({
+        id,
+        name,
+        categoryId: params.categoryId,
+        file: fileName,
+      });
       for (const tagId of tagIds) {
-        db.insert(wardrobeItemTags)
+        await tx
+          .insert(wardrobeItemTags)
           .values({ wardrobeItemId: id, tagId })
-          .onConflictDoNothing()
-          .run();
+          .onConflictDoNothing();
       }
     });
-    tx();
   } catch (err) {
     // 回滚已落盘文件
     await unlink(filePath).catch(() => {});
     throw AppError.internal("写入数据库失败", err);
   }
 
-  const row = getWardrobeItem(id);
+  const row = await getWardrobeItem(id);
   if (!row) {
     throw AppError.internal("写入后无法回读单品");
   }
-  const tagsByItem = fetchTagsByItemIds([id]);
+  const tagsByItem = await fetchTagsByItemIds([id]);
   const t = tagsByItem.get(id);
   const item: WardrobeListItem = {
     ...rowToItem(row),
@@ -270,7 +268,7 @@ export async function createWardrobeItem(
 }
 
 export async function deleteWardrobeItem(id: string): Promise<void> {
-  const row = getWardrobeItem(id);
+  const row = await getWardrobeItem(id);
   if (!row) {
     throw AppError.notFound(`衣橱中不存在 id: ${id}`);
   }
@@ -280,10 +278,7 @@ export async function deleteWardrobeItem(id: string): Promise<void> {
   }
 
   try {
-    const tx = sqlite.transaction(() => {
-      db.delete(wardrobeItems).where(eq(wardrobeItems.id, id)).run();
-    });
-    tx();
+    await db.delete(wardrobeItems).where(eq(wardrobeItems.id, id));
   } catch (err) {
     throw AppError.internal("删除数据库行失败", err);
   }

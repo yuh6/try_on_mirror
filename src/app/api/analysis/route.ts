@@ -5,6 +5,7 @@ import { AppError } from "@/lib/errors";
 import { analyzeAppearance } from "@/lib/services/analysis.service";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const BodySchema = z.object({
   personImage: z.string().min(1).startsWith("data:image/"),
