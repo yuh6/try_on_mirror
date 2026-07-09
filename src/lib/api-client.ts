@@ -3,6 +3,8 @@
 // Non-2xx responses throw ApiError (status + code + message).
 
 import type {
+  AnalyzeRequest,
+  AnalyzeResponse,
   CreateWardrobeItemRequest,
   CreateWardrobeItemResponse,
   GenerateRequest,
@@ -158,8 +160,23 @@ export function deleteGeneration(
   });
 }
 
+// ─── Analysis (形象分析) ─────────────────────────────────────────────────────
+
+export function analyzeAppearance(
+  payload: AnalyzeRequest,
+  opts: FetchOptions = {},
+): Promise<AnalyzeResponse> {
+  return request<AnalyzeResponse>(`/api/analysis`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: opts.signal,
+  });
+}
+
 // Re-export types for callers that want to `import { WardrobeItem } from '@/lib/api-client'`.
 export type {
+  AnalyzeRequest,
+  AnalyzeResponse,
   CreateWardrobeItemRequest,
   CreateWardrobeItemResponse,
   GenerateRequest,

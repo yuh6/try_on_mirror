@@ -14,6 +14,8 @@ import { CategoryTabs } from "@/components/CategoryTabs";
 import { ResultCard } from "@/components/ResultCard";
 import { UploadSlot } from "@/components/UploadSlot";
 import { WardrobeGrid } from "@/components/WardrobeGrid";
+import { AnalysisPanel } from "@/components/AnalysisPanel";
+import { useAnalysis } from "@/hooks/useAnalysis";
 import { useGenerate } from "@/hooks/useGenerate";
 import { useWardrobe } from "@/hooks/useWardrobe";
 import type { WardrobeItem } from "@/lib/api-types";
@@ -48,6 +50,8 @@ export default function Home() {
     reset: resetGenerate,
   } = useGenerate();
 
+  const analysis = useAnalysis();
+
   const filteredWardrobe = useMemo(() => {
     if (!activeCategory) return wardrobeItems;
     return wardrobeItems.filter((it) => it.category === activeCategory);
@@ -79,6 +83,7 @@ export default function Home() {
       const dataUrl = await readFile(file);
       if (type === "person") {
         setPersonImage(dataUrl);
+        analysis.analyze(dataUrl);
       } else {
         setClothingImage(dataUrl);
         setSelectedWardrobeItem(null);
@@ -113,6 +118,7 @@ export default function Home() {
     setSelectedWardrobeItem(null);
     setReadError(null);
     resetGenerate();
+    analysis.reset();
   };
 
   const clothingReady =
@@ -168,7 +174,10 @@ export default function Home() {
                     icon="🧑"
                     image={personImage}
                     onClick={() => personRef.current?.click()}
-                    onClear={() => setPersonImage(null)}
+                    onClear={() => {
+                      setPersonImage(null);
+                      analysis.reset();
+                    }}
                   />
                   <UploadSlot
                     label="衣服"
@@ -203,6 +212,15 @@ export default function Home() {
                   className="hidden"
                   onChange={(e) => handleFileChange(e, "clothing")}
                 />
+
+                {/* 形象分析面板 —— 只在人像有内容且分析已触发时出现 */}
+                {personImage && analysis.phase !== "idle" && (
+                  <AnalysisPanel
+                    phase={analysis.phase}
+                    result={analysis.result}
+                    error={analysis.error}
+                  />
+                )}
 
                 {/* Clothing source toggle */}
                 <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-[#1E2D24]/8">

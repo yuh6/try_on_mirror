@@ -8,7 +8,7 @@ import { generateImage } from "@/lib/seedream";
 import { getWardrobeItemAsDataUri, getWardrobeItem } from "@/lib/services/wardrobe.service";
 
 export const DEFAULT_PROMPT =
-  "将图1中的人物穿上图2中的衣服，保持人物脸部和体型不变，全身照，专业时尚摄影，高清写真，自然光线，干净背景";
+  "将图一的服饰，穿到图二的人物身上，保持图二背景内容与人物面貌一致性不变，同时稍微把人物的气质提升一下，稍微变好看一点，自信一点";
 
 // Seedream 服务端超时（DESIGN 5.2：服务端 90s，前端 120s）
 const SEEDREAM_TIMEOUT_MS = 90_000;
@@ -132,7 +132,7 @@ export async function createGeneration(
   try {
     outputUrl = await generateImage({
       prompt,
-      images: [params.personImage, clothing],
+      images: [clothing, params.personImage],
       size: "2K",
       signal: controller.signal,
     });

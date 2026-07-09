@@ -80,6 +80,31 @@ export type ListGenerationsResponse = {
 
 export type OkResponse = { ok: true };
 
+// ---------- 形象分析 ----------
+
+export type AnalysisSkinTone = "warm" | "cool" | "neutral";
+export type AnalysisBodyType = "slim" | "medium" | "fuller";
+
+export type AnalysisStructured = {
+  skinTone: AnalysisSkinTone;
+  bodyType: AnalysisBodyType;
+};
+
+export type AnalysisQualitative = {
+  compliments: string[];
+  suggestion: string;
+};
+
+export type AnalyzeRequest = {
+  personImage: string; // data:image/...;base64,
+};
+
+export type AnalyzeResponse = {
+  structured: AnalysisStructured;
+  qualitative: AnalysisQualitative;
+  fallback: boolean;
+};
+
 export type ApiErrorBody = {
   error: string;
   code?: string;
