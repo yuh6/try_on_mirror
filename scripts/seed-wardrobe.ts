@@ -30,34 +30,36 @@ for (const it of manifest.items) {
 }
 
 // upsert：JSON 是权威源；DB 里同 id 覆盖，缺席的 id 不动
-await db.transaction(async (tx) => {
-  for (let i = 0; i < manifest.categories.length; i++) {
-    const c = manifest.categories[i];
-    await tx
-      .insert(categories)
-      .values({ id: c.id, name: c.name, sortOrder: i })
-      .onConflictDoUpdate({
-        target: categories.id,
-        set: { name: c.name, sortOrder: i },
-      });
-  }
-  for (const it of manifest.items) {
-    await tx
-      .insert(wardrobeItems)
-      .values({
-        id: it.id,
-        name: it.name,
-        categoryId: it.category,
-        file: it.file,
-      })
-      .onConflictDoUpdate({
-        target: wardrobeItems.id,
-        set: { name: it.name, categoryId: it.category, file: it.file },
-      });
-  }
-});
+(async () => {
+  await db.transaction(async (tx) => {
+    for (let i = 0; i < manifest.categories.length; i++) {
+      const c = manifest.categories[i];
+      await tx
+        .insert(categories)
+        .values({ id: c.id, name: c.name, sortOrder: i })
+        .onConflictDoUpdate({
+          target: categories.id,
+          set: { name: c.name, sortOrder: i },
+        });
+    }
+    for (const it of manifest.items) {
+      await tx
+        .insert(wardrobeItems)
+        .values({
+          id: it.id,
+          name: it.name,
+          categoryId: it.category,
+          file: it.file,
+        })
+        .onConflictDoUpdate({
+          target: wardrobeItems.id,
+          set: { name: it.name, categoryId: it.category, file: it.file },
+        });
+    }
+  });
 
-console.log(
-  `[seed] 完成: ${manifest.categories.length} 个分类, ${manifest.items.length} 件衣服`
-);
-process.exit(0);
+  console.log(
+    `[seed] 完成: ${manifest.categories.length} 个分类, ${manifest.items.length} 件衣服`
+  );
+  process.exit(0);
+})();
