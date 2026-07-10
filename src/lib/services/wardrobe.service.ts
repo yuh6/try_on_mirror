@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { readFile, unlink, writeFile, mkdir } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { asc, eq } from "drizzle-orm";
+import { del, put } from "@vercel/blob";
 import { db } from "@/db/client";
 import {
   categories,
@@ -25,6 +26,8 @@ export type WardrobeListItem = WardrobeItem & {
   tags?: WardrobeTag[];
 };
 
+// seed 老数据以纯文件名保存 → 走 public/wardrobe 静态资源；
+// 用户新上传走 Vercel Blob，file 直接存完整 https URL。
 export const WARDROBE_DIR = path.join(process.cwd(), "public", "wardrobe");
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -44,6 +47,14 @@ const EXT_BY_MIME: Record<string, string> = {
 
 // 5MB — 与 DESIGN 5.1 对齐，服务端二次校验解码后字节数
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+function isRemoteUrl(file: string): boolean {
+  return /^https?:\/\//i.test(file);
+}
+
+function resolveWardrobeUrl(file: string): string {
+  return isRemoteUrl(file) ? file : `/wardrobe/${file}`;
+}
 
 // URL-safe short id 生成（避免额外依赖）
 function shortId(bytes = 8): string {
@@ -107,7 +118,7 @@ export async function listWardrobe(options?: { category?: string }) {
     const t = tagsByItem.get(row.id);
     const item: WardrobeListItem = {
       ...rowToItem(row),
-      url: `/wardrobe/${row.file}`,
+      url: resolveWardrobeUrl(row.file),
     };
     if (t && t.length > 0) item.tags = t;
     return item;
@@ -127,13 +138,30 @@ export async function getWardrobeItem(
   return row ?? null;
 }
 
+async function fetchRemoteAsDataUri(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw AppError.internal(
+      `拉取远端图片失败 ${res.status}: ${url}`
+    );
+  }
+  const mime = res.headers.get("content-type") ?? "application/octet-stream";
+  const buf = Buffer.from(await res.arrayBuffer());
+  return `data:${mime};base64,${buf.toString("base64")}`;
+}
+
 export async function getWardrobeItemAsDataUri(id: string): Promise<string> {
   const row = await getWardrobeItem(id);
   if (!row) {
     throw AppError.notFound(`衣橱中不存在 id: ${id}`);
   }
 
-  // 防止 file 字段包含路径分隔符逃出 wardrobe 目录
+  // 远端 Blob：直接 fetch
+  if (isRemoteUrl(row.file)) {
+    return fetchRemoteAsDataUri(row.file);
+  }
+
+  // 本地 seed 文件：防止 file 字段包含路径分隔符逃出 wardrobe 目录
   const safeName = path.basename(row.file);
   if (safeName !== row.file) {
     throw AppError.internal(`衣橱条目 ${id} 的 file 字段非法: ${row.file}`);
@@ -219,18 +247,15 @@ export async function createWardrobeItem(
     }
   }
 
-  const { ext, buffer } = decodeDataUri(params.fileBase64);
+  const { mime, ext, buffer } = decodeDataUri(params.fileBase64);
   const id = `wu_${shortId(8)}`;
-  const rawFileName = `${id}${ext}`;
-  // path.basename() 净化 —— 防止 id 或 ext 泄漏路径分隔符
-  const fileName = path.basename(rawFileName);
-  if (fileName !== rawFileName) {
-    throw AppError.internal("生成的文件名不合法");
-  }
+  const objectKey = `wardrobe/${id}${ext}`;
 
-  await mkdir(WARDROBE_DIR, { recursive: true });
-  const filePath = path.join(WARDROBE_DIR, fileName);
-  await writeFile(filePath, buffer);
+  // 先落 Blob，再写 DB；DB 写失败时删 Blob 回滚
+  const uploaded = await put(objectKey, buffer, {
+    access: "public",
+    contentType: mime,
+  });
 
   try {
     await db.transaction(async (tx) => {
@@ -238,7 +263,7 @@ export async function createWardrobeItem(
         id,
         name,
         categoryId: params.categoryId,
-        file: fileName,
+        file: uploaded.url,
       });
       for (const tagId of tagIds) {
         await tx
@@ -248,8 +273,8 @@ export async function createWardrobeItem(
       }
     });
   } catch (err) {
-    // 回滚已落盘文件
-    await unlink(filePath).catch(() => {});
+    // 回滚已落 Blob
+    await del(uploaded.url).catch(() => {});
     throw AppError.internal("写入数据库失败", err);
   }
 
@@ -261,7 +286,7 @@ export async function createWardrobeItem(
   const t = tagsByItem.get(id);
   const item: WardrobeListItem = {
     ...rowToItem(row),
-    url: `/wardrobe/${row.file}`,
+    url: resolveWardrobeUrl(row.file),
   };
   if (t && t.length > 0) item.tags = t;
   return item;
@@ -272,10 +297,6 @@ export async function deleteWardrobeItem(id: string): Promise<void> {
   if (!row) {
     throw AppError.notFound(`衣橱中不存在 id: ${id}`);
   }
-  const safeName = path.basename(row.file);
-  if (safeName !== row.file) {
-    throw AppError.internal(`衣橱条目 ${id} 的 file 字段非法: ${row.file}`);
-  }
 
   try {
     await db.delete(wardrobeItems).where(eq(wardrobeItems.id, id));
@@ -283,13 +304,28 @@ export async function deleteWardrobeItem(id: string): Promise<void> {
     throw AppError.internal("删除数据库行失败", err);
   }
 
+  // 远端 Blob：调 del；本地 seed 文件：unlink（幂等）
+  if (isRemoteUrl(row.file)) {
+    try {
+      await del(row.file);
+    } catch (err) {
+      // DB 已删，Blob 删失败仅打日志
+      console.error(`[wardrobe] del blob ${row.file} 失败:`, err);
+    }
+    return;
+  }
+
+  const safeName = path.basename(row.file);
+  if (safeName !== row.file) {
+    console.error(`[wardrobe] 条目 ${id} 的 file 字段非法: ${row.file}`);
+    return;
+  }
   const filePath = path.join(WARDROBE_DIR, safeName);
   try {
     await unlink(filePath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return; // 幂等
-    // DB 已删，磁盘失败仅打日志，不重新插回
     console.error(`[wardrobe] unlink ${filePath} 失败:`, err);
   }
 }
