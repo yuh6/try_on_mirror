@@ -67,11 +67,14 @@ interface Bubble {
   text: string;
 }
 
-export function ProfileClient() {
+export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [profile, setProfile] = useState<ElderProfile>({ ...EMPTY_ELDER_PROFILE });
+  const [profile, setProfile] = useState<ElderProfile>({
+    ...EMPTY_ELDER_PROFILE,
+    ...initialProfile,
+  });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
