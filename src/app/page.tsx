@@ -158,7 +158,7 @@ export default function HomePage() {
             href="/profile"
             className="btn-primary inline-flex items-center gap-[8px] bg-[#192830] text-white rounded-[4px] px-[20px] py-[0px] text-[16px] tracking-[-0.32px] mt-[28px] leading-[44px]"
           >
-            填写老人档案
+            重新填写老人档案
             <span className="arrow font-flare text-[18px]">→</span>
           </Link>
 
@@ -173,12 +173,12 @@ export default function HomePage() {
             onClick={startPhone}
             className="btn-primary inline-flex items-center gap-[8px] bg-[#192830] text-white rounded-[4px] px-[20px] py-[0px] text-[16px] tracking-[-0.32px] mt-[14px] leading-[44px]"
           >
-            开始使用
+            直接开始使用
             <span className="arrow font-flare text-[18px]">→</span>
           </button>
         </div>
 
-        {/* 手机图片（可点击进入通话原型） */}
+        {/* 猫咪图片（可点击进入通话原型） */}
         <div className="hero-wordmark absolute z-10 right-[34px] bottom-[40px]">
           <button
             type="button"
@@ -188,10 +188,10 @@ export default function HomePage() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/static/hero-phone.jpg"
-              alt="小棉袄手机界面（点击开始使用）"
+              src="/static/caregiver.jpg"
+              alt="小棉袄猫咪（点击直接开始使用）"
               className="rounded-[20px]"
-              style={{ maxHeight: "45vh", width: "auto", objectFit: "cover", display: "block" }}
+              style={{ maxHeight: "45vh", maxWidth: "360px", width: "auto", objectFit: "cover", display: "block" }}
             />
           </button>
         </div>
@@ -218,8 +218,8 @@ export default function HomePage() {
             <div data-aos="fade-up" data-aos-delay="300" className="mt-[40px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/static/caregiver.jpg"
-                alt="陪伴"
+                src="/static/hero-phone.jpg"
+                alt="小棉袄手机界面"
                 className="rounded-[16px] shadow-lg"
                 style={{ maxWidth: 260, width: "100%", height: "auto" }}
               />

@@ -32,6 +32,20 @@ interface ChatBubble {
 
 type ScreenId = "locked" | "incoming" | "active";
 
+/** 真人语音桥地址（本地 .env 或 Vercel 环境变量 NEXT_PUBLIC_VOICE_BRIDGE_URL） */
+const BRIDGE_URL = process.env.NEXT_PUBLIC_VOICE_BRIDGE_URL || "";
+
+/* ---------- PCM 工具：Int16 ⇄ base64 ---------- */
+function int16ToBase64(i16: Int16Array): string {
+  const bytes = new Uint8Array(i16.buffer);
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(bin);
+}
+
 export default function PhonePage() {
   const router = useRouter();
 
@@ -43,6 +57,7 @@ export default function PhonePage() {
   const [xiaomianSpeaking, setXiaomianSpeaking] = useState(false);
   const [error, setError] = useState("");
   const [callClock, setCallClock] = useState("08:03");
+  const [realtimeMode, setRealtimeMode] = useState(false); // 真人语音模式（走桥）
 
   /* ---------- 对话历史（发给服务端） ---------- */
   const historyRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
@@ -256,23 +271,177 @@ export default function PhonePage() {
     screenActiveRef.current = screen === "active";
   }, [screen]);
 
+  /* ---------- 真人语音模式（桥 ⇄ 千问 Realtime） ---------- */
+  const rtWsRef = useRef<WebSocket | null>(null);
+  const micCtxRef = useRef<AudioContext | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micProcRef = useRef<ScriptProcessorNode | null>(null);
+  const playCtxRef = useRef<AudioContext | null>(null);
+  const playNextRef = useRef(0);
+  const rtReadyRef = useRef(false);
+
+  function rtCleanup() {
+    try { micProcRef.current?.disconnect(); } catch {}
+    micProcRef.current = null;
+    try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+    micStreamRef.current = null;
+    try { micCtxRef.current?.close(); } catch {}
+    micCtxRef.current = null;
+    try { playCtxRef.current?.close(); } catch {}
+    playCtxRef.current = null;
+    try { rtWsRef.current?.close(); } catch {}
+    rtWsRef.current = null;
+    rtReadyRef.current = false;
+    setListening(false);
+    setXiaomianSpeaking(false);
+    setRealtimeMode(false);
+  }
+
+  /** 播放小棉的语音块（24kHz mono int16 PCM base64） */
+  function rtPlayChunk(b64: string) {
+    let ctx = playCtxRef.current;
+    if (!ctx) {
+      ctx = new AudioContext({ sampleRate: 24000 });
+      playCtxRef.current = ctx;
+      playNextRef.current = 0;
+    }
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const i16 = new Int16Array(bytes.buffer);
+    const f32 = new Float32Array(i16.length);
+    for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+    const buf = ctx.createBuffer(1, f32.length, 24000);
+    buf.copyToChannel(f32, 0);
+    const node = ctx.createBufferSource();
+    node.buffer = buf;
+    node.connect(ctx.destination);
+    const now = ctx.currentTime;
+    if (playNextRef.current < now + 0.03) playNextRef.current = now + 0.03;
+    node.start(playNextRef.current);
+    playNextRef.current += buf.duration;
+  }
+
+  /** 浏览器麦克风 → 16kHz mono int16 → 发给桥 */
+  async function rtStartMic(ws: WebSocket) {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+    });
+    micStreamRef.current = stream;
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    micCtxRef.current = ctx;
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    micProcRef.current = proc;
+    proc.onaudioprocess = (e) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const f32 = e.inputBuffer.getChannelData(0);
+      const i16 = new Int16Array(f32.length);
+      for (let i = 0; i < f32.length; i++) {
+        const s = Math.max(-1, Math.min(1, f32[i]));
+        i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      try {
+        ws.send(JSON.stringify({ t: "audio", a: int16ToBase64(i16) }));
+      } catch {}
+    };
+    src.connect(proc);
+    proc.connect(ctx.destination); // ScriptProcessor 需要接 destination 才回调
+    setListening(true);
+  }
+
+  /** 尝试走真人语音模式；桥不可用时返回 false（降级标准模式） */
+  function rtAnswer(): Promise<boolean> {
+    if (!BRIDGE_URL || typeof window === "undefined") return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(ok);
+      };
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(BRIDGE_URL);
+      } catch {
+        done(false);
+        return;
+      }
+      rtWsRef.current = ws;
+      const timer = setTimeout(() => done(false), 8000); // 8 秒没就绪就降级
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ t: "answer" }));
+      };
+      ws.onmessage = (ev) => {
+        let msg: { t: string; text?: string; a?: string; on?: boolean; message?: string };
+        try {
+          msg = JSON.parse(String(ev.data));
+        } catch {
+          return;
+        }
+        if (msg.t === "ready") {
+          clearTimeout(timer);
+          rtReadyRef.current = true;
+          setRealtimeMode(true);
+          rtStartMic(ws).catch((err) => {
+            setError("麦克风权限失败：" + (err instanceof Error ? err.message : String(err)));
+          });
+          done(true);
+        } else if (msg.t === "user_text" && msg.text) {
+          setBubbles((b) => [...b, { role: "user", text: msg.text! }]);
+        } else if (msg.t === "assistant_text" && msg.text) {
+          setBubbles((b) => [...b, { role: "assistant", text: msg.text! }]);
+        } else if (msg.t === "qwen_audio" && msg.a) {
+          rtPlayChunk(msg.a);
+        } else if (msg.t === "speaking") {
+          setXiaomianSpeaking(Boolean(msg.on));
+        } else if (msg.t === "error" && msg.message) {
+          setError(msg.message);
+        }
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        done(false);
+      };
+      ws.onclose = () => {
+        // 通话中断开 → 清理；未就绪时视为降级
+        if (!rtReadyRef.current) {
+          clearTimeout(timer);
+          done(false);
+        } else {
+          rtCleanup();
+        }
+      };
+    });
+  }
+
   /* ---------- 接听 / 挂断 ---------- */
-  function answer() {
+  async function answer() {
     stopRingtone();
     setScreen("active");
-    startListening();
-    // 小棉先开口说开场白
-    sendToXiaomian("", true);
+    // 优先真人语音模式（桥）；失败降级标准模式（浏览器识别+TTS）
+    const ok = await rtAnswer();
+    if (!ok) {
+      rtCleanup();
+      startListening();
+      sendToXiaomian("", true);
+    }
   }
 
   function hangup() {
     stopRingtone();
-    stopListening();
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      speechSynthesis.cancel();
+    if (rtReadyRef.current) {
+      try { rtWsRef.current?.send(JSON.stringify({ t: "hangup" })); } catch {}
+      rtCleanup();
+    } else {
+      stopListening();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        speechSynthesis.cancel();
+      }
+      speakingRef.current = false;
+      setXiaomianSpeaking(false);
     }
-    speakingRef.current = false;
-    setXiaomianSpeaking(false);
     setScreen("locked");
   }
 
@@ -365,11 +534,12 @@ export default function PhonePage() {
               <div className="status-bar">
                 <span>{callClock}</span>
                 <span className="status-chip">
-                  <span className="status-dot"></span>语音 AI
+                  <span className="status-dot"></span>
+                  {realtimeMode ? "真人语音" : "语音 AI"}
                 </span>
               </div>
               <div className="stage-content">
-                <div className="eyebrow">语音 AI</div>
+                <div className="eyebrow">{realtimeMode ? "真人语音" : "语音 AI"}</div>
                 <div className="caller-name">小棉袄</div>
                 <div className="call-state">
                   {xiaomianSpeaking
@@ -455,7 +625,9 @@ export default function PhonePage() {
               {screen === "locked" ? "← 返回首页" : "■ 结束通话"}
             </button>
             <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>
-              建议用 Chrome/Edge · 需要麦克风权限
+              {realtimeMode
+                ? "🌸 真人语音模式 · 千问 longanqian 音色"
+                : "标准模式 · 建议用 Chrome/Edge · 需要麦克风权限"}
             </span>
           </div>
         </div>
