@@ -4,12 +4,26 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
-# 项目主 Skill（必读，优先级高于其它设计文档）
+# 小棉袄 · 子女端网站
 
-本项目所有的设计、功能规划、文案、技术选型、代码审查决策，**必须**先阅读并遵循：
+给独居老人的 AI 陪伴产品「小棉袄」的子女端网站（从 Python Flask 版 callinggrandma 迁移而来）。
 
-- `.claude/skills/ai-yijing-meta/SKILL.md` — AI·衣境项目元技能
+## 结构
 
-**关键校准**：本产品定位是「专属门店审美的 AI 造型顾问」，**不是**「AI 试衣镜」、**不是**「虚拟换衣工具」、**不是**「导购替代品」。
+- `src/app/page.tsx` — 产品落地页
+- `src/app/board/` — 家庭看板（服务端组件直查 DB + 留言表单）
+- `src/app/reports/` — AI 通话汇报（10 秒轮询刷新）
+- `src/app/profile/` — 老人档案表单（含纯前端模拟 AI 引导填表）
+- `src/app/voice_setup/` — 语音填表（Web Speech API + 千问对话）
+- `src/app/api/` — 路由处理器（messages / profile / parse_profile / voice / data / stats）
+- `src/lib/qwen.ts` — 通义千问客户端（DashScope OpenAI 兼容接口）
+- `src/lib/profile-collector.ts` — 语音档案收集（无状态，客户端持有会话）
+- `src/lib/family-board.ts` — 留言板数据层
+- `src/lib/elder-profile.ts` — 纯类型与常量（客户端可安全引入）
+- `src/db/` — Drizzle schema + migrations（Turso/libsql）
 
-当你在代码、UI 文案、变量名、注释、commit message 中看到 "试衣镜 / 虚拟试穿 / 换衣效果 / 还原穿上效果" 类表述时，按 SKILL.md §一.身份校准规则 修正。所有功能提案必须通过 SKILL.md §八.功能评估清单 的七项检验。
+## 约定
+
+- API 路由沿用 `handleApiRoute(scope, fn)` + Zod 校验 + `AppError` 模式
+- 线上旧「换装魔镜」表仍留在 schema.ts 尾部（防止 drizzle-kit 生成 DROP 语句），勿使用
+- 语音会话状态由客户端持有（serverless 无内存单例），API 保持无状态

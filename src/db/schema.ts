@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import {
   sqliteTable,
   text,
@@ -7,6 +6,81 @@ import {
   primaryKey,
   check,
 } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+
+/* ============================================================
+ * 小棉袄 —— 子女端数据表
+ * ============================================================ */
+
+/** 老人档案：单行 JSON 文档（id 固定为 "main"） */
+export const elderProfiles = sqliteTable("elder_profiles", {
+  id: text("id").primaryKey(),
+  data: text("data").notNull(), // elder_profile JSON 字符串
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/** 子女留言（小棉在通话时传话给老人） */
+export const boardMessages = sqliteTable(
+  "board_messages",
+  {
+    id: text("id").primaryKey(),
+    fromWho: text("from_who").notNull(),
+    text: text("text").notNull(),
+    time: text("time").notNull(), // "YYYY-MM-DD HH:mm:ss"
+    delivered: integer("delivered", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+  (t) => [index("idx_board_messages_time").on(t.time)]
+);
+
+/** AI 通话汇报 */
+export const boardReports = sqliteTable(
+  "board_reports",
+  {
+    id: text("id").primaryKey(),
+    time: text("time").notNull(),
+    summary: text("summary").notNull(),
+    mood: text("mood").notNull().default(""),
+    details: text("details").notNull().default(""),
+  },
+  (t) => [index("idx_board_reports_time").on(t.time)]
+);
+
+/** 待办（小棉建议子女做的事） */
+export const boardTodos = sqliteTable(
+  "board_todos",
+  {
+    id: text("id").primaryKey(),
+    text: text("text").notNull(),
+    done: integer("done", { mode: "boolean" }).notNull().default(false),
+    time: text("time").notNull(),
+  },
+  (t) => [index("idx_board_todos_time").on(t.time)]
+);
+
+/** 心情记录（同一天只保留最新一条，date 为主键） */
+export const boardMoods = sqliteTable("board_moods", {
+  date: text("date").primaryKey(), // "YYYY-MM-DD"
+  mood: text("mood").notNull(),
+  note: text("note").notNull().default(""),
+  time: text("time").notNull(),
+});
+
+export type ElderProfileRow = typeof elderProfiles.$inferSelect;
+export type BoardMessageRow = typeof boardMessages.$inferSelect;
+export type BoardReportRow = typeof boardReports.$inferSelect;
+export type BoardTodoRow = typeof boardTodos.$inferSelect;
+export type BoardMoodRow = typeof boardMoods.$inferSelect;
+
+/* ============================================================
+ * 以下为旧「换装魔镜」遗留表定义。
+ * 线上 Turso 里仍有这些表，保留定义是为了让 drizzle-kit
+ * 不在后续迁移中生成 DROP 语句（不主动删生产数据）。
+ * 新代码请勿使用。
+ * ============================================================ */
 
 export const categories = sqliteTable("categories", {
   id: text("id").primaryKey(),
@@ -81,14 +155,3 @@ export const wardrobeItemTags = sqliteTable(
     index("idx_wit_tag").on(t.tagId),
   ]
 );
-
-export type Category = typeof categories.$inferSelect;
-export type CategoryInsert = typeof categories.$inferInsert;
-export type WardrobeItemRow = typeof wardrobeItems.$inferSelect;
-export type WardrobeItemInsert = typeof wardrobeItems.$inferInsert;
-export type GenerationRow = typeof generations.$inferSelect;
-export type GenerationInsert = typeof generations.$inferInsert;
-export type TagRow = typeof tags.$inferSelect;
-export type TagInsert = typeof tags.$inferInsert;
-export type WardrobeItemTagRow = typeof wardrobeItemTags.$inferSelect;
-export type WardrobeItemTagInsert = typeof wardrobeItemTags.$inferInsert;

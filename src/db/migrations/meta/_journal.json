@@ -15,6 +15,13 @@
       "when": 1783601283662,
       "tag": "0001_optimal_ikaris",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786713712813,
+      "tag": "0002_whole_gauntlet",
+      "breakpoints": true
     }
   ]
 }

@@ -1,43 +1,26 @@
 @import "tailwindcss";
 
-/* MirrorMag Retro Film Palette */
+/* ============================================================
+ * 小棉袄设计令牌（来自产品落地页 index.html 的 @theme 配置）
+ * ============================================================ */
 :root {
-  --background: #FAF5EB;
-  --foreground: #1E2D24;
-
-  --primary: #1E2D24;         /* forest */
-  --primary-foreground: #FAF5EB;
-  --secondary: #C5A880;       /* champagne */
-  --accent: #F5E6C8;
-  --muted: #F0E8D5;
-  --muted-foreground: #5C6B61;
-  --border: #D4C4A0;
-  --destructive: #B22222;
+  --background: #f5f5ee; /* parchment */
+  --foreground: #2f3136; /* graphite */
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-accent: var(--accent);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
+  --color-deep-ink: #192830;
+  --color-parchment: #f5f5ee;
+  --color-linen: #e4e7da;
+  --color-pressed-cotton: #d7d7cb;
+  --color-graphite: #2f3136;
+  --color-slate: #535557;
+  --color-dusk: #424e52;
+  --color-footer-olive: #393e28;
 
-  --color-forest: #1E2D24;
-  --color-moss: #5C6B61;
-  --color-champagne: #C5A880;
-  --color-champagne-light: #E8D5A3;
-  --color-champagne-rose: #F0D5C8;
-  --color-ivory: #FAF5EB;
-
-  --font-sans: var(--font-noto-sans-sc);
-
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
+  --font-sans: var(--font-inter), var(--font-noto-sans-sc), ui-sans-serif,
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-flare: var(--font-playfair), ui-serif, Georgia, serif;
 }
 
 * {
@@ -51,45 +34,45 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  touch-action: manipulation;
-  overscroll-behavior: none;
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: -0.32px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
 }
 
-/* Champagne gradient shell */
-.champagne-bg {
-  background:
-    radial-gradient(circle at 15% 10%, rgba(240,213,200,0.55), transparent 55%),
-    radial-gradient(circle at 85% 90%, rgba(232,213,163,0.5), transparent 55%),
-    linear-gradient(180deg, #FAF5EB 0%, #F0E8D5 100%);
+/* 衬线展示字体（ABC Arizona Flare 的替代：Playfair Display） */
+.font-flare {
+  font-family: var(--font-playfair), ui-serif, Georgia, serif;
+  font-weight: 400;
 }
 
-/* Film grain overlay */
-.film-grain::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
-  background-size: 220px 220px;
-  opacity: 0.18;
-  mix-blend-mode: multiply;
-  z-index: 1;
-  border-radius: inherit;
+/* 品牌字标：超大号 + 紧字距 */
+.wordmark {
+  font-family: var(--font-playfair), ui-serif, Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.05em;
 }
 
-.text-champagne-gradient {
-  background: linear-gradient(90deg, #C5A880, #E8D5A3, #C5A880);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+/* 中文页面正文用 Noto Sans SC */
+.font-zh {
+  font-family: var(--font-noto-sans-sc), var(--font-inter), ui-sans-serif,
+    system-ui, sans-serif;
 }
 
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-.skeleton-shimmer {
-  background: linear-gradient(90deg, #F0E8D5 25%, #FAF5EB 50%, #F0E8D5 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+/* 尊重系统"减少动态效果"偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  [data-aos] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }

@@ -1,0 +1,813 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { ElderProfile } from "@/lib/elder-profile";
+import { EMPTY_ELDER_PROFILE } from "@/lib/elder-profile";
+
+/* ---------- Web Speech API 最小类型声明 ---------- */
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+/* ---------- 张桂芬示例数据（对话完成后自动填表用） ---------- */
+const DEMO_PROFILE: ElderProfile = {
+  name: "张桂芬",
+  age: "72",
+  gender: "女",
+  title: "张阿姨",
+  living: "大连",
+  marriage: "丧偶",
+  spouse: "老伴5年前去世",
+  living_status: "独居，生活自理，白天大部分时间一个人在家",
+  health_items: [
+    { name: "高血压", medicine: "每天早上吃降压药", notes: "需要规律服药" },
+    { name: "膝盖问题", medicine: "阴天下雨擦红花油", notes: "阴雨天膝盖疼，当年特意选一楼住房" },
+  ],
+  family: [
+    { name: "李强", relation: "儿子", age: "45", job: "工程师", location: "深圳", phone: "", note: "孝顺但工作忙，周日晚视频通话" },
+    { name: "刘娜", relation: "儿媳", age: "", job: "", location: "深圳", phone: "", note: "" },
+    { name: "李小满", relation: "孙女", age: "14", job: "初二学生", location: "深圳", phone: "", note: "" },
+  ],
+  routine: "每天6:30起床，7点看电视/听收音机；周一上午去菜市场（下雨不去）；周二周四下午2点跟王姨刘姨打牌；中午常凑合吃一口；周日晚儿子视频通话",
+  hobbies: "看戏曲频道、看天气预报、打牌、织毛衣",
+  personality: "开朗坚强但报喜不报忧，怕麻烦人",
+  call_ai: "像贴心侄女一样唠家常，温暖、有耐心，不急不躁。老人想聊就陪，想收就收",
+  emotion_style:
+    "不伪装真人，但像真人一样说话：有停顿、有承接、有温度，不背稿。一次只说一两句，像打电话聊天。听得懂叹气和哽咽，能从语气里听出没说出口的心事。老人说没事就不追问，说挂了就温暖道别。做不到的事诚实说，不假装、不敷衍。",
+};
+
+/* ---------- 对话脚本：小棉依次问这些问题（纯前端模拟） ---------- */
+const CHAT_SCRIPT = [
+  "您好，我是小棉袄 😊 为了让我更好地陪伴老人，先聊聊基本情况吧——老人的姓名、年龄、住在哪里？",
+  "了解了。那老人的身体健康状况怎么样？有没有什么慢性病、日常用药、或者需要注意的地方？",
+  "好的，我记下了。那家里还有哪些人？比如子女在哪里工作、有没有孙辈？",
+  "听起来是个温暖的大家庭。那老人平时有什么生活习惯呢？比如几点起床、喜欢做什么、有什么爱好？",
+  "挺充实的。那老人的性格怎么样？比如是开朗还是内向？会不会报喜不报忧、怕麻烦人？",
+  "明白了，谢谢您。最后想问一下，您希望小棉用什么风格和老人通话？比如唠家常的、温柔关心的、还是干脆利落的？",
+];
+
+const CHAT_SUMMARY =
+  "好的，我都记下来了。我会像贴心侄女一样陪老人唠家常——不伪装真人，但像真人一样有温度地说话。听得懂叹气和哽咽，老人想聊就陪，想收就收。做不到的事诚实说，不假装、不敷衍。这就是我的陪伴原则。正在帮您整理档案...";
+
+interface Bubble {
+  role: "ai" | "user";
+  text: string;
+}
+
+export function ProfileClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [profile, setProfile] = useState<ElderProfile>({ ...EMPTY_ELDER_PROFILE });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  // 保存徽章（?voice=1 来自语音填表完成跳转；保存成功后本地置位）
+  const voiceSaved = searchParams.get("voice") === "1";
+  const [justSaved, setJustSaved] = useState(false);
+
+  /* ---------- AI 对话式填表（纯前端模拟） ---------- */
+  const [bubbles, setBubbles] = useState<Bubble[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [typing, setTyping] = useState(false);
+  const [chatDone, setChatDone] = useState(false);
+  const chatStep = useRef(0);
+  const chatAreaRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // 启动对话：显示第一句 AI 提问
+  useEffect(() => {
+    setBubbles([{ role: "ai", text: CHAT_SCRIPT[0] }]);
+  }, []);
+
+  // 气泡变化时滚动到底部
+  useEffect(() => {
+    const el = chatAreaRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [bubbles, typing]);
+
+  function setField<K extends keyof ElderProfile>(key: K, value: ElderProfile[K]) {
+    setProfile((p) => ({ ...p, [key]: value }));
+  }
+
+  function sendChat() {
+    const text = chatInput.trim();
+    if (!text || typing || chatDone) return;
+
+    setBubbles((b) => [...b, { role: "user", text }]);
+    setChatInput("");
+    chatStep.current += 1;
+
+    if (chatStep.current < CHAT_SCRIPT.length) {
+      setTyping(true);
+      setTimeout(() => {
+        setTyping(false);
+        setBubbles((b) => [...b, { role: "ai", text: CHAT_SCRIPT[chatStep.current] }]);
+      }, 800);
+    } else {
+      // 问完了 → AI 总结 → 填表
+      setTyping(true);
+      setTimeout(() => {
+        setTyping(false);
+        setBubbles((b) => [...b, { role: "ai", text: CHAT_SUMMARY }]);
+        setTimeout(() => {
+          setProfile({ ...DEMO_PROFILE });
+          setChatDone(true);
+          formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 2000);
+      }, 800);
+    }
+  }
+
+  /* ---------- 麦克风（Web Speech API） ---------- */
+  const [micActive, setMicActive] = useState(false);
+  const speechRef = useRef<SpeechRecognitionLike | null>(null);
+  const micActiveRef = useRef(false);
+
+  function initSpeech(): boolean {
+    if (typeof window === "undefined") return false;
+    const SR = (window as unknown as {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    }).SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor })
+        .webkitSpeechRecognition;
+    if (!SR) return false;
+
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setChatInput(transcript);
+    };
+    rec.onerror = (event) => {
+      if (event.error === "not-allowed") {
+        alert("请允许使用麦克风权限");
+      }
+      stopMic();
+    };
+    rec.onend = () => {
+      // 还在录音状态（没主动停）→ 自动重启保持持续聆听
+      if (micActiveRef.current) {
+        try {
+          rec.start();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    speechRef.current = rec;
+    return true;
+  }
+
+  function toggleMic() {
+    if (micActive) stopMic();
+    else startMic();
+  }
+
+  function startMic() {
+    if (!speechRef.current && !initSpeech()) {
+      alert("您的浏览器不支持语音识别，请用 Chrome 或 Edge");
+      return;
+    }
+    micActiveRef.current = true;
+    setMicActive(true);
+    setChatInput("");
+    try {
+      speechRef.current?.start();
+    } catch {
+      /* already started */
+    }
+  }
+
+  function stopMic() {
+    micActiveRef.current = false;
+    setMicActive(false);
+    try {
+      speechRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /* ---------- 表单提交 ---------- */
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profile),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "保存失败，请重试");
+      }
+      setJustSaved(true);
+      router.refresh();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "保存失败，请重试");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputDisabled = chatDone;
+
+  return (
+    <main className="font-zh min-h-screen" style={{ background: "#f5f5ee" }}>
+      {/* 流动渐变背景 */}
+      <div className="mesh-bg">
+        <div className="mesh-blob"></div>
+        <div className="mesh-blob"></div>
+        <div className="mesh-blob"></div>
+        <div className="mesh-blob"></div>
+      </div>
+
+      <div className="content-layer">
+        {/* 导航 */}
+        <nav
+          className="flex items-center justify-between px-8 py-5 border-b border-[#e4e7da]/50"
+          style={{ backdropFilter: "blur(12px)", background: "rgba(245,245,238,0.6)" }}
+        >
+          <Link href="/" className="font-serif-display text-[22px] text-[#2f3136] tracking-[-0.02em]">
+            小棉袄
+          </Link>
+          <div className="flex items-center gap-6">
+            <Link href="/board" className="text-[15px] text-[#535557] hover:text-[#2f3136] transition-colors">
+              看板
+            </Link>
+            <Link href="/reports" className="text-[15px] text-[#535557] hover:text-[#2f3136] transition-colors">
+              汇报
+            </Link>
+          </div>
+        </nav>
+
+        {/* 页头 */}
+        <div className="max-w-[760px] mx-auto px-6 pt-16 pb-10 text-center">
+          <div className="text-[13px] text-[#535557] uppercase tracking-[0.08em] mb-3">
+            老人档案
+          </div>
+          <h1 className="font-serif-display text-[42px] text-[#2f3136] leading-[1.1] tracking-[-0.02em] mb-4">
+            让小棉更懂 <em className="italic text-[#535557]">Ta</em>
+          </h1>
+          <p className="text-[17px] text-[#535557] max-w-[440px] mx-auto leading-[1.5]">
+            信息越完整，小棉的关怀就越贴心。
+          </p>
+        </div>
+
+        <div className="max-w-[760px] mx-auto px-6 pb-20">
+          {/* 保存徽章 */}
+          {(justSaved || voiceSaved) && (
+            <div className="saved-badge show">
+              {voiceSaved ? "✓ 语音录入完成，档案已保存" : "✓ 档案已保存"}
+            </div>
+          )}
+
+          {/* AI 对话式填表 */}
+          <div
+            className="rounded-[6px] p-6 mb-10"
+            style={{
+              background: "rgba(255,255,255,0.7)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(228,231,218,0.6)",
+              boxShadow: "0 2px 20px rgba(0,0,0,0.04)",
+            }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-[20px]">🌸</span>
+              <span className="font-serif-display text-[18px] text-[#2f3136]">
+                和小棉聊聊老人
+              </span>
+            </div>
+
+            {/* 对话区 */}
+            <div
+              ref={chatAreaRef}
+              className="flex flex-col gap-3 mb-4 min-h-[120px] max-h-[320px] overflow-y-auto"
+            >
+              {bubbles.map((b, i) => (
+                <div key={i} className={`flex ${b.role === "ai" ? "justify-start" : "justify-end"}`}>
+                  <div
+                    className={`max-w-[80%] rounded-[16px] ${
+                      b.role === "ai" ? "rounded-tl-[4px]" : "rounded-tr-[4px]"
+                    } px-4 py-2.5 text-[14px] leading-[1.5]`}
+                    style={
+                      b.role === "ai"
+                        ? { background: "#e4e7da", color: "#2f3136" }
+                        : { background: "#192830", color: "white" }
+                    }
+                  >
+                    {b.role === "ai" ? `🌸 ${b.text}` : b.text}
+                  </div>
+                </div>
+              ))}
+              {typing && (
+                <div className="flex justify-start">
+                  <div
+                    className="rounded-[16px] rounded-tl-[4px] px-4 py-3 text-[14px]"
+                    style={{ background: "#e4e7da", color: "#2f3136" }}
+                  >
+                    <span className="inline-flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot" style={{ animationDelay: "0.2s" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot" style={{ animationDelay: "0.4s" }} />
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 输入区 */}
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    sendChat();
+                  }
+                }}
+                disabled={inputDisabled}
+                className="field-input flex-1"
+                style={{
+                  background: "rgba(255,255,255,0.9)",
+                  opacity: inputDisabled ? 0.4 : undefined,
+                }}
+                placeholder={micActive ? "正在聆听..." : ""}
+              />
+              <button
+                type="button"
+                onClick={toggleMic}
+                className="w-[42px] h-[42px] rounded-[6px] flex items-center justify-center transition-all flex-shrink-0"
+                style={{
+                  background: micActive ? "#c0392b" : "rgba(255,255,255,0.9)",
+                  border: micActive ? "1px solid #c0392b" : "1px solid #e4e7da",
+                  animation: micActive ? "micPulse 1.5s infinite" : undefined,
+                }}
+                title="语音输入"
+              >
+                {micActive ? "■" : "🎤"}
+              </button>
+              <button
+                type="button"
+                onClick={sendChat}
+                disabled={inputDisabled}
+                className="bg-[#192830] text-white px-5 py-2.5 rounded-[6px] text-[14px] hover:opacity-85 transition-opacity whitespace-nowrap h-[42px] disabled:opacity-50"
+              >
+                发送
+              </button>
+            </div>
+            <p className="text-[12px] text-[#898989] mt-2">
+              {chatDone
+                ? "✓ 档案已自动填好，请检查下方表格，修改后点「保存档案」"
+                : "回车发送 · 点🎤可以语音输入 · 小棉会一步步引导你"}
+            </p>
+          </div>
+
+          {/* 档案表单 */}
+          <form ref={formRef} onSubmit={onSubmit}>
+            {/* 01 基本信息 */}
+            <div className="mb-12">
+              <div className="flex items-baseline gap-3 mb-6 pb-3 border-b border-[#e4e7da]">
+                <span className="section-num">01</span>
+                <span className="font-serif-display text-[22px] text-[#2f3136]">基本信息</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="field-label">姓名</label>
+                  <input
+                    type="text"
+                    className="field-input"
+                    value={profile.name}
+                    onChange={(e) => setField("name", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="field-label">年龄</label>
+                  <input
+                    type="number"
+                    className="field-input"
+                    value={profile.age}
+                    onChange={(e) => setField("age", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* 性别选择 */}
+              <div className="mb-4">
+                <label className="field-label">性别</label>
+                <div className="gender-toggle">
+                  {(["女", "男"] as const).map((g) => (
+                    <label
+                      key={g}
+                      className={`gender-option ${profile.gender === g ? "selected" : ""}`}
+                      onClick={() => setField("gender", g)}
+                    >
+                      <input type="radio" name="gender" value={g} checked={profile.gender === g} onChange={() => setField("gender", g)} />
+                      <span>{g === "女" ? "👩 女" : "👨 男"}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="field-label">称呼</label>
+                <div className="field-hint">小棉日常怎么称呼老人</div>
+                <input
+                  type="text"
+                  className="field-input"
+                  value={profile.title}
+                  onChange={(e) => setField("title", e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="field-label">所在城市</label>
+                  <input
+                    type="text"
+                    className="field-input"
+                    value={profile.living}
+                    onChange={(e) => setField("living", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="field-label">婚姻状况</label>
+                  <input
+                    type="text"
+                    className="field-input"
+                    value={profile.marriage}
+                    onChange={(e) => setField("marriage", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="field-label">居住情况</label>
+                  <input
+                    type="text"
+                    className="field-input"
+                    value={profile.living_status}
+                    onChange={(e) => setField("living_status", e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 02 健康档案 */}
+            <div className="mb-12">
+              <div className="flex items-baseline gap-3 mb-6 pb-3 border-b border-[#e4e7da]">
+                <span className="section-num">02</span>
+                <span className="font-serif-display text-[22px] text-[#2f3136]">健康档案</span>
+              </div>
+
+              {profile.health_items.map((item, i) => (
+                <div key={i} className="health-row">
+                  <input
+                    type="text"
+                    className="field-input"
+                    placeholder="疾病/状况"
+                    value={item.name}
+                    onChange={(e) =>
+                      setField("health_items", profile.health_items.map((it, j) =>
+                        j === i ? { ...it, name: e.target.value } : it
+                      ))
+                    }
+                  />
+                  <input
+                    type="text"
+                    className="field-input"
+                    placeholder="用药"
+                    value={item.medicine}
+                    onChange={(e) =>
+                      setField("health_items", profile.health_items.map((it, j) =>
+                        j === i ? { ...it, medicine: e.target.value } : it
+                      ))
+                    }
+                  />
+                  <input
+                    type="text"
+                    className="field-input"
+                    placeholder="备注"
+                    value={item.notes}
+                    onChange={(e) =>
+                      setField("health_items", profile.health_items.map((it, j) =>
+                        j === i ? { ...it, notes: e.target.value } : it
+                      ))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="delete-btn"
+                    onClick={() =>
+                      setField("health_items", profile.health_items.filter((_, j) => j !== i))
+                    }
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="add-link"
+                onClick={() =>
+                  setField("health_items", [
+                    ...profile.health_items,
+                    { name: "", medicine: "", notes: "" },
+                  ])
+                }
+              >
+                + 添加健康项
+              </button>
+            </div>
+
+            {/* 03 家人信息 */}
+            <div className="mb-12">
+              <div className="flex items-baseline gap-3 mb-6 pb-3 border-b border-[#e4e7da]">
+                <span className="section-num">03</span>
+                <span className="font-serif-display text-[22px] text-[#2f3136]">家人信息</span>
+              </div>
+
+              {profile.family.map((m, i) => {
+                const setMember = (key: keyof typeof m, value: string) =>
+                  setField("family", profile.family.map((mm, j) =>
+                    j === i ? { ...mm, [key]: value } : mm
+                  ));
+                return (
+                  <div key={i} className="family-card">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-[15px] text-[#2f3136]">
+                        {m.relation} {m.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="delete-btn"
+                        onClick={() => setField("family", profile.family.filter((_, j) => j !== i))}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <input type="text" className="field-input" placeholder="姓名" value={m.name} onChange={(e) => setMember("name", e.target.value)} />
+                      <input type="text" className="field-input" placeholder="关系" value={m.relation} onChange={(e) => setMember("relation", e.target.value)} />
+                      <input type="text" className="field-input" placeholder="电话" value={m.phone} onChange={(e) => setMember("phone", e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                      <input type="text" className="field-input" placeholder="职业" value={m.job} onChange={(e) => setMember("job", e.target.value)} />
+                      <input type="text" className="field-input" placeholder="所在地" value={m.location} onChange={(e) => setMember("location", e.target.value)} />
+                      <input type="text" className="field-input" placeholder="备注" value={m.note} onChange={(e) => setMember("note", e.target.value)} />
+                    </div>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                className="add-link"
+                onClick={() =>
+                  setField("family", [
+                    ...profile.family,
+                    { name: "", relation: "", age: "", job: "", location: "", phone: "", note: "" },
+                  ])
+                }
+              >
+                + 添加家人
+              </button>
+            </div>
+
+            {/* 04 日常与性格 */}
+            <div className="mb-12">
+              <div className="flex items-baseline gap-3 mb-6 pb-3 border-b border-[#e4e7da]">
+                <span className="section-num">04</span>
+                <span className="font-serif-display text-[22px] text-[#2f3136]">日常与性格</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="field-label">日常作息</label>
+                  <input
+                    type="text"
+                    className="field-input"
+                    value={profile.routine}
+                    onChange={(e) => setField("routine", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="field-label">兴趣爱好</label>
+                  <input
+                    type="text"
+                    className="field-input"
+                    value={profile.hobbies}
+                    onChange={(e) => setField("hobbies", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="field-label">性格特点</label>
+                <div className="field-hint">帮助小棉用合适的方式和老人交流</div>
+                <input
+                  type="text"
+                  className="field-input"
+                  value={profile.personality}
+                  onChange={(e) => setField("personality", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* 05 AI人设 */}
+            <div className="mb-12">
+              <div className="flex items-baseline gap-3 mb-6 pb-3 border-b border-[#e4e7da]">
+                <span className="section-num">05</span>
+                <span className="font-serif-display text-[22px] text-[#2f3136]">AI 人设</span>
+              </div>
+
+              <div className="mb-4">
+                <label className="field-label">通话风格</label>
+                <div className="field-hint">小棉和老人通话时的语气和方式</div>
+                <input
+                  type="text"
+                  className="field-input"
+                  value={profile.call_ai}
+                  onChange={(e) => setField("call_ai", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="field-label">陪伴原则</label>
+                <div className="field-hint">小棉遵循的关键约束（本项目核心）</div>
+                <textarea
+                  className="field-input"
+                  rows={4}
+                  style={{ minHeight: 90, resize: "vertical", lineHeight: 1.6 }}
+                  value={profile.emotion_style}
+                  onChange={(e) => setField("emotion_style", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* 提交 */}
+            <div className="text-center pt-8 border-t border-[#e4e7da]">
+              <button
+                type="submit"
+                disabled={saving}
+                className="bg-[#192830] text-white px-8 py-3.5 rounded-[6px] text-[16px] hover:opacity-85 transition-opacity tracking-[0.01em] disabled:opacity-50"
+              >
+                {saving ? "保存中…" : "保存档案"}
+              </button>
+              {saveError && (
+                <div className="text-sm text-[#c0392b] mt-3">{saveError}</div>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {/* 档案页专属样式 */}
+      <style>{`
+        .mesh-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+        .mesh-blob {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(80px);
+          opacity: 0.5;
+          animation: meshFloat 20s ease-in-out infinite;
+        }
+        .mesh-blob:nth-child(1) { width: 500px; height: 500px; background: #FFD85F; top: -10%; left: -5%; animation-delay: 0s; }
+        .mesh-blob:nth-child(2) { width: 450px; height: 450px; background: #b3c4cd; top: 30%; right: -10%; animation-delay: -5s; }
+        .mesh-blob:nth-child(3) { width: 400px; height: 400px; background: #d7d7cb; bottom: -10%; left: 20%; animation-delay: -10s; }
+        .mesh-blob:nth-child(4) { width: 350px; height: 350px; background: #CFB7FC; top: 50%; left: 40%; opacity: 0.3; animation-delay: -15s; }
+        @keyframes meshFloat {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          25% { transform: translate(60px, -40px) scale(1.1); }
+          50% { transform: translate(-40px, 60px) scale(0.95); }
+          75% { transform: translate(30px, 30px) scale(1.05); }
+        }
+        .content-layer { position: relative; z-index: 1; }
+        @keyframes micPulse {
+          0% { box-shadow: 0 0 0 0 rgba(192,57,43,0.4); }
+          70% { box-shadow: 0 0 0 12px rgba(192,57,43,0); }
+          100% { box-shadow: 0 0 0 0 rgba(192,57,43,0); }
+        }
+        .font-serif-display {
+          font-family: var(--font-playfair), 'Noto Serif SC', Georgia, serif;
+          font-weight: 400;
+        }
+        .field-input {
+          width: 100%;
+          background: var(--color-white, #fff);
+          border: 1px solid #e4e7da;
+          padding: 12px 16px;
+          font-size: 16px;
+          color: #2f3136;
+          border-radius: 6px;
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .field-input:focus {
+          outline: none;
+          border-color: #192830;
+          box-shadow: 0 0 0 3px rgba(25,40,48,0.06);
+        }
+        .field-input::placeholder { color: #aaa; }
+        .field-label {
+          display: block;
+          font-size: 12px;
+          color: #535557;
+          margin-bottom: 6px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          font-weight: 500;
+        }
+        .field-hint { font-size: 13px; color: #424e52; margin-bottom: 6px; }
+        .section-num {
+          font-family: var(--font-playfair), Georgia, serif;
+          font-size: 14px;
+          color: #d7d7cb;
+          font-style: italic;
+        }
+        .gender-toggle { display: flex; gap: 8px; }
+        .gender-option {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 12px;
+          border: 1px solid #e4e7da;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.2s;
+          background: #fff;
+          font-size: 15px;
+          color: #535557;
+        }
+        .gender-option:hover { border-color: #d7d7cb; }
+        .gender-option input { display: none; }
+        .gender-option.selected {
+          background: #192830;
+          color: #fff;
+          border-color: #192830;
+        }
+        .health-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1.5fr auto;
+          gap: 10px;
+          margin-bottom: 10px;
+          align-items: center;
+        }
+        .health-row .field-input { padding: 8px 12px; font-size: 14px; }
+        @media (max-width: 600px) { .health-row { grid-template-columns: 1fr; } }
+        .family-card {
+          background: #fff;
+          padding: 20px;
+          border: 1px solid #e4e7da;
+          border-radius: 6px;
+          margin-bottom: 12px;
+        }
+        .add-link {
+          background: none; border: none;
+          color: #192830;
+          font-size: 14px;
+          cursor: pointer; padding: 8px 0;
+          text-decoration: underline; text-underline-offset: 3px;
+        }
+        .delete-btn {
+          background: none; border: none;
+          color: #424e52; cursor: pointer;
+          font-size: 16px; padding: 4px 8px;
+        }
+        .delete-btn:hover { color: #c0392b; }
+        .saved-badge {
+          background: #e4e7da;
+          color: #2f3136;
+          padding: 12px 20px;
+          border-radius: 6px;
+          font-size: 14px;
+          margin-bottom: 20px;
+          text-align: center;
+        }
+        @keyframes blink { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+        .typing-dot { animation: blink 1.4s infinite; }
+      `}</style>
+    </main>
+  );
+}
