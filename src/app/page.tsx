@@ -2,10 +2,18 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import AOS from "aos";
 import "aos/dist/aos.css";
 
 export default function HomePage() {
+  const router = useRouter();
+
+  // 开始使用：进入手机通话模拟（纯网页版，浏览器内完成语音）
+  function startPhone() {
+    router.push("/phone");
+  }
+
   useEffect(() => {
     AOS.init({
       duration: 800,
@@ -153,17 +161,39 @@ export default function HomePage() {
             填写老人档案
             <span className="arrow font-flare text-[18px]">→</span>
           </Link>
+
+          {/* 模拟原型红字说明 */}
+          <p className="text-[#c0392b] text-[14px] leading-[1.6] tracking-[-0.2px] max-w-[440px] mt-[18px] font-medium">
+            ！！！此项目，需要结合实际的手机硬件，这里做个模拟原型来模拟手机通话，请点击下面的开始使用或者手机屏幕吧
+          </p>
+
+          {/* 开始使用按钮 */}
+          <button
+            type="button"
+            onClick={startPhone}
+            className="btn-primary inline-flex items-center gap-[8px] bg-[#192830] text-white rounded-[4px] px-[20px] py-[0px] text-[16px] tracking-[-0.32px] mt-[14px] leading-[44px]"
+          >
+            开始使用
+            <span className="arrow font-flare text-[18px]">→</span>
+          </button>
         </div>
 
-        {/* 手机图片 */}
-        <div className="hero-wordmark absolute z-10 right-[34px] bottom-[40px] pointer-events-none">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/static/hero-phone.jpg"
-            alt="小棉袄手机界面"
-            className="rounded-[20px] shadow-2xl"
-            style={{ maxHeight: "45vh", width: "auto", objectFit: "cover" }}
-          />
+        {/* 手机图片（可点击进入通话原型） */}
+        <div className="hero-wordmark absolute z-10 right-[34px] bottom-[40px]">
+          <button
+            type="button"
+            onClick={startPhone}
+            className="rounded-[20px] shadow-2xl block cursor-pointer transition-transform hover:scale-[1.02]"
+            title="点击进入手机通话模拟"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/static/hero-phone.jpg"
+              alt="小棉袄手机界面（点击开始使用）"
+              className="rounded-[20px]"
+              style={{ maxHeight: "45vh", width: "auto", objectFit: "cover", display: "block" }}
+            />
+          </button>
         </div>
       </section>
 
