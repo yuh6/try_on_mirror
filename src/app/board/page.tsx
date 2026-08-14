@@ -5,7 +5,7 @@ import { CalendarCard } from "./calendar";
 
 export const dynamic = "force-dynamic";
 
-export const MOOD_EMOJI: Record<string, string> = {
+const MOOD_EMOJI: Record<string, string> = {
   平静: "😌",
   开心: "😊",
   低落: "😔",

@@ -31,7 +31,7 @@ export default function HomePage() {
 
     function onScroll() {
       const scrollY = window.scrollY;
-      const heroH = hero.offsetHeight;
+      const heroH = hero?.offsetHeight ?? 0;
 
       if (scrollY < heroH) {
         if (!reduceMotion) {
