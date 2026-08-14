@@ -1,71 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ElderProfile } from "@/lib/elder-profile";
 import { EMPTY_ELDER_PROFILE } from "@/lib/elder-profile";
-
-/* ---------- Web Speech API 最小类型声明 ---------- */
-interface SpeechRecognitionLike {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-}
-type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
-
-/* ---------- 张桂芬示例数据（对话完成后自动填表用） ---------- */
-const DEMO_PROFILE: ElderProfile = {
-  name: "张桂芬",
-  age: "72",
-  gender: "女",
-  title: "张阿姨",
-  living: "大连",
-  marriage: "丧偶",
-  spouse: "老伴5年前去世",
-  living_status: "独居，生活自理，白天大部分时间一个人在家",
-  health_items: [
-    { name: "高血压", medicine: "每天早上吃降压药", notes: "需要规律服药" },
-    { name: "膝盖问题", medicine: "阴天下雨擦红花油", notes: "阴雨天膝盖疼，当年特意选一楼住房" },
-  ],
-  family: [
-    { name: "李强", relation: "儿子", age: "45", job: "工程师", location: "深圳", phone: "", note: "孝顺但工作忙，周日晚视频通话" },
-    { name: "刘娜", relation: "儿媳", age: "", job: "", location: "深圳", phone: "", note: "" },
-    { name: "李小满", relation: "孙女", age: "14", job: "初二学生", location: "深圳", phone: "", note: "" },
-  ],
-  routine: "每天6:30起床，7点看电视/听收音机；周一上午去菜市场（下雨不去）；周二周四下午2点跟王姨刘姨打牌；中午常凑合吃一口；周日晚儿子视频通话",
-  activities: "",
-  hobbies: "看戏曲频道、看天气预报、打牌、织毛衣",
-  contact_habit: "",
-  personality: "开朗坚强但报喜不报忧，怕麻烦人",
-  speech_habits: "",
-  call_ai: "像贴心侄女一样唠家常，温暖、有耐心，不急不躁。老人想聊就陪，想收就收",
-  emotion_style:
-    "不伪装真人，但像真人一样说话：有停顿、有承接、有温度，不背稿。一次只说一两句，像打电话聊天。听得懂叹气和哽咽，能从语气里听出没说出口的心事。老人说没事就不追问，说挂了就温暖道别。做不到的事诚实说，不假装、不敷衍。",
-};
-
-/* ---------- 对话脚本：小棉依次问这些问题（纯前端模拟） ---------- */
-const CHAT_SCRIPT = [
-  "您好，我是小棉袄 😊 为了让我更好地陪伴老人，先聊聊基本情况吧——老人的姓名、年龄、住在哪里？",
-  "了解了。那老人的身体健康状况怎么样？有没有什么慢性病、日常用药、或者需要注意的地方？",
-  "好的，我记下了。那家里还有哪些人？比如子女在哪里工作、有没有孙辈？",
-  "听起来是个温暖的大家庭。那老人平时有什么生活习惯呢？比如几点起床、喜欢做什么、有什么爱好？",
-  "挺充实的。那老人的性格怎么样？比如是开朗还是内向？会不会报喜不报忧、怕麻烦人？",
-  "明白了，谢谢您。最后想问一下，您希望小棉用什么风格和老人通话？比如唠家常的、温柔关心的、还是干脆利落的？",
-];
-
-const CHAT_SUMMARY =
-  "好的，我都记下来了。我会像贴心侄女一样陪老人唠家常——不伪装真人，但像真人一样有温度地说话。听得懂叹气和哽咽，老人想聊就陪，想收就收。做不到的事诚实说，不假装、不敷衍。这就是我的陪伴原则。正在帮您整理档案...";
-
-interface Bubble {
-  role: "ai" | "user";
-  text: string;
-}
 
 export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile }) {
   const router = useRouter();
@@ -82,133 +21,8 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
   const voiceSaved = searchParams.get("voice") === "1";
   const [justSaved, setJustSaved] = useState(false);
 
-  /* ---------- AI 对话式填表（纯前端模拟） ---------- */
-  const [bubbles, setBubbles] = useState<Bubble[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [typing, setTyping] = useState(false);
-  const [chatDone, setChatDone] = useState(false);
-  const chatStep = useRef(0);
-  const chatAreaRef = useRef<HTMLDivElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  // 启动对话：显示第一句 AI 提问
-  useEffect(() => {
-    setBubbles([{ role: "ai", text: CHAT_SCRIPT[0] }]);
-  }, []);
-
-  // 气泡变化时滚动到底部
-  useEffect(() => {
-    const el = chatAreaRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [bubbles, typing]);
-
   function setField<K extends keyof ElderProfile>(key: K, value: ElderProfile[K]) {
     setProfile((p) => ({ ...p, [key]: value }));
-  }
-
-  function sendChat() {
-    const text = chatInput.trim();
-    if (!text || typing || chatDone) return;
-
-    setBubbles((b) => [...b, { role: "user", text }]);
-    setChatInput("");
-    chatStep.current += 1;
-
-    if (chatStep.current < CHAT_SCRIPT.length) {
-      setTyping(true);
-      setTimeout(() => {
-        setTyping(false);
-        setBubbles((b) => [...b, { role: "ai", text: CHAT_SCRIPT[chatStep.current] }]);
-      }, 800);
-    } else {
-      // 问完了 → AI 总结 → 填表
-      setTyping(true);
-      setTimeout(() => {
-        setTyping(false);
-        setBubbles((b) => [...b, { role: "ai", text: CHAT_SUMMARY }]);
-        setTimeout(() => {
-          setProfile({ ...DEMO_PROFILE });
-          setChatDone(true);
-          formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }, 2000);
-      }, 800);
-    }
-  }
-
-  /* ---------- 麦克风（Web Speech API） ---------- */
-  const [micActive, setMicActive] = useState(false);
-  const speechRef = useRef<SpeechRecognitionLike | null>(null);
-  const micActiveRef = useRef(false);
-
-  function initSpeech(): boolean {
-    if (typeof window === "undefined") return false;
-    const SR = (window as unknown as {
-      SpeechRecognition?: SpeechRecognitionCtor;
-      webkitSpeechRecognition?: SpeechRecognitionCtor;
-    }).SpeechRecognition ??
-      (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor })
-        .webkitSpeechRecognition;
-    if (!SR) return false;
-
-    const rec = new SR();
-    rec.lang = "zh-CN";
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.onresult = (event) => {
-      let transcript = "";
-      for (let i = 0; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
-      }
-      setChatInput(transcript);
-    };
-    rec.onerror = (event) => {
-      if (event.error === "not-allowed") {
-        alert("请允许使用麦克风权限");
-      }
-      stopMic();
-    };
-    rec.onend = () => {
-      // 还在录音状态（没主动停）→ 自动重启保持持续聆听
-      if (micActiveRef.current) {
-        try {
-          rec.start();
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-    speechRef.current = rec;
-    return true;
-  }
-
-  function toggleMic() {
-    if (micActive) stopMic();
-    else startMic();
-  }
-
-  function startMic() {
-    if (!speechRef.current && !initSpeech()) {
-      alert("您的浏览器不支持语音识别，请用 Chrome 或 Edge");
-      return;
-    }
-    micActiveRef.current = true;
-    setMicActive(true);
-    setChatInput("");
-    try {
-      speechRef.current?.start();
-    } catch {
-      /* already started */
-    }
-  }
-
-  function stopMic() {
-    micActiveRef.current = false;
-    setMicActive(false);
-    try {
-      speechRef.current?.stop();
-    } catch {
-      /* ignore */
-    }
   }
 
   /* ---------- 表单提交 ---------- */
@@ -235,8 +49,6 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
       setSaving(false);
     }
   }
-
-  const inputDisabled = chatDone;
 
   return (
     <main className="font-zh min-h-screen" style={{ background: "#f5f5ee" }}>
@@ -283,116 +95,13 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
         <div className="max-w-[760px] mx-auto px-6 pb-20">
           {/* 保存徽章 */}
           {(justSaved || voiceSaved) && (
-            <div className="saved-badge show">
-              {voiceSaved ? "✓ 语音录入完成，档案已保存" : "✓ 档案已保存"}
+            <div className="saved-badge">
+              {voiceSaved && !justSaved ? "✓ 语音录入完成，档案已保存" : "✓ 档案已保存"}
             </div>
           )}
 
-          {/* AI 对话式填表 */}
-          <div
-            className="rounded-[6px] p-6 mb-10"
-            style={{
-              background: "rgba(255,255,255,0.7)",
-              backdropFilter: "blur(20px)",
-              border: "1px solid rgba(228,231,218,0.6)",
-              boxShadow: "0 2px 20px rgba(0,0,0,0.04)",
-            }}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-[20px]">🌸</span>
-              <span className="font-serif-display text-[18px] text-[#2f3136]">
-                和小棉聊聊老人
-              </span>
-            </div>
-
-            {/* 对话区 */}
-            <div
-              ref={chatAreaRef}
-              className="flex flex-col gap-3 mb-4 min-h-[120px] max-h-[320px] overflow-y-auto"
-            >
-              {bubbles.map((b, i) => (
-                <div key={i} className={`flex ${b.role === "ai" ? "justify-start" : "justify-end"}`}>
-                  <div
-                    className={`max-w-[80%] rounded-[16px] ${
-                      b.role === "ai" ? "rounded-tl-[4px]" : "rounded-tr-[4px]"
-                    } px-4 py-2.5 text-[14px] leading-[1.5]`}
-                    style={
-                      b.role === "ai"
-                        ? { background: "#e4e7da", color: "#2f3136" }
-                        : { background: "#192830", color: "white" }
-                    }
-                  >
-                    {b.role === "ai" ? `🌸 ${b.text}` : b.text}
-                  </div>
-                </div>
-              ))}
-              {typing && (
-                <div className="flex justify-start">
-                  <div
-                    className="rounded-[16px] rounded-tl-[4px] px-4 py-3 text-[14px]"
-                    style={{ background: "#e4e7da", color: "#2f3136" }}
-                  >
-                    <span className="inline-flex gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot" style={{ animationDelay: "0.2s" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot" style={{ animationDelay: "0.4s" }} />
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 输入区 */}
-            <div className="flex gap-2 items-center">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    sendChat();
-                  }
-                }}
-                disabled={inputDisabled}
-                className="field-input flex-1"
-                style={{
-                  background: "rgba(255,255,255,0.9)",
-                  opacity: inputDisabled ? 0.4 : undefined,
-                }}
-                placeholder={micActive ? "正在聆听..." : ""}
-              />
-              <button
-                type="button"
-                onClick={toggleMic}
-                className="w-[42px] h-[42px] rounded-[6px] flex items-center justify-center transition-all flex-shrink-0"
-                style={{
-                  background: micActive ? "#c0392b" : "rgba(255,255,255,0.9)",
-                  border: micActive ? "1px solid #c0392b" : "1px solid #e4e7da",
-                  animation: micActive ? "micPulse 1.5s infinite" : undefined,
-                }}
-                title="语音输入"
-              >
-                {micActive ? "■" : "🎤"}
-              </button>
-              <button
-                type="button"
-                onClick={sendChat}
-                disabled={inputDisabled}
-                className="bg-[#192830] text-white px-5 py-2.5 rounded-[6px] text-[14px] hover:opacity-85 transition-opacity whitespace-nowrap h-[42px] disabled:opacity-50"
-              >
-                发送
-              </button>
-            </div>
-            <p className="text-[12px] text-[#898989] mt-2">
-              {chatDone
-                ? "✓ 档案已自动填好，请检查下方表格，修改后点「保存档案」"
-                : "回车发送 · 点🎤可以语音输入 · 小棉会一步步引导你"}
-            </p>
-          </div>
-
           {/* 档案表单 */}
-          <form ref={formRef} onSubmit={onSubmit}>
+          <form onSubmit={onSubmit}>
             {/* 01 基本信息 */}
             <div className="mb-12">
               <div className="flex items-baseline gap-3 mb-6 pb-3 border-b border-[#e4e7da]">
@@ -431,7 +140,13 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
                       className={`gender-option ${profile.gender === g ? "selected" : ""}`}
                       onClick={() => setField("gender", g)}
                     >
-                      <input type="radio" name="gender" value={g} checked={profile.gender === g} onChange={() => setField("gender", g)} />
+                      <input
+                        type="radio"
+                        name="gender"
+                        value={g}
+                        checked={profile.gender === g}
+                        onChange={() => setField("gender", g)}
+                      />
                       <span>{g === "女" ? "👩 女" : "👨 男"}</span>
                     </label>
                   ))}
@@ -495,9 +210,12 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
                     placeholder="疾病/状况"
                     value={item.name}
                     onChange={(e) =>
-                      setField("health_items", profile.health_items.map((it, j) =>
-                        j === i ? { ...it, name: e.target.value } : it
-                      ))
+                      setField(
+                        "health_items",
+                        profile.health_items.map((it, j) =>
+                          j === i ? { ...it, name: e.target.value } : it
+                        )
+                      )
                     }
                   />
                   <input
@@ -506,9 +224,12 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
                     placeholder="用药"
                     value={item.medicine}
                     onChange={(e) =>
-                      setField("health_items", profile.health_items.map((it, j) =>
-                        j === i ? { ...it, medicine: e.target.value } : it
-                      ))
+                      setField(
+                        "health_items",
+                        profile.health_items.map((it, j) =>
+                          j === i ? { ...it, medicine: e.target.value } : it
+                        )
+                      )
                     }
                   />
                   <input
@@ -517,16 +238,22 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
                     placeholder="备注"
                     value={item.notes}
                     onChange={(e) =>
-                      setField("health_items", profile.health_items.map((it, j) =>
-                        j === i ? { ...it, notes: e.target.value } : it
-                      ))
+                      setField(
+                        "health_items",
+                        profile.health_items.map((it, j) =>
+                          j === i ? { ...it, notes: e.target.value } : it
+                        )
+                      )
                     }
                   />
                   <button
                     type="button"
                     className="delete-btn"
                     onClick={() =>
-                      setField("health_items", profile.health_items.filter((_, j) => j !== i))
+                      setField(
+                        "health_items",
+                        profile.health_items.filter((_, j) => j !== i)
+                      )
                     }
                   >
                     ✕
@@ -556,9 +283,12 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
 
               {profile.family.map((m, i) => {
                 const setMember = (key: keyof typeof m, value: string) =>
-                  setField("family", profile.family.map((mm, j) =>
-                    j === i ? { ...mm, [key]: value } : mm
-                  ));
+                  setField(
+                    "family",
+                    profile.family.map((mm, j) =>
+                      j === i ? { ...mm, [key]: value } : mm
+                    )
+                  );
                 return (
                   <div key={i} className="family-card">
                     <div className="flex justify-between items-center mb-3">
@@ -568,7 +298,9 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
                       <button
                         type="button"
                         className="delete-btn"
-                        onClick={() => setField("family", profile.family.filter((_, j) => j !== i))}
+                        onClick={() =>
+                          setField("family", profile.family.filter((_, j) => j !== i))
+                        }
                       >
                         ✕
                       </button>
@@ -709,18 +441,13 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
           75% { transform: translate(30px, 30px) scale(1.05); }
         }
         .content-layer { position: relative; z-index: 1; }
-        @keyframes micPulse {
-          0% { box-shadow: 0 0 0 0 rgba(192,57,43,0.4); }
-          70% { box-shadow: 0 0 0 12px rgba(192,57,43,0); }
-          100% { box-shadow: 0 0 0 0 rgba(192,57,43,0); }
-        }
         .font-serif-display {
           font-family: var(--font-playfair), 'Noto Serif SC', Georgia, serif;
           font-weight: 400;
         }
         .field-input {
           width: 100%;
-          background: var(--color-white, #fff);
+          background: #fff;
           border: 1px solid #e4e7da;
           padding: 12px 16px;
           font-size: 16px;
@@ -811,8 +538,6 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
           margin-bottom: 20px;
           text-align: center;
         }
-        @keyframes blink { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
-        .typing-dot { animation: blink 1.4s infinite; }
       `}</style>
     </main>
   );
