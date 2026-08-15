@@ -139,7 +139,7 @@ export default function HomePage() {
               href="/profile"
               className="btn-ghost text-[#192830] bg-white border border-[#192830] rounded-[6px] px-[18px] py-[4px] text-[16px] tracking-[-0.32px]"
             >
-              填写档案
+              重新填写档案
             </Link>
           </div>
         </nav>
@@ -187,16 +187,6 @@ export default function HomePage() {
               style={{ maxHeight: "280px", maxWidth: "100%", width: "auto", objectFit: "cover", display: "block" }}
             />
           </button>
-
-          {/* 重新填写老人档案（猫咪图片下方） */}
-          <div className="mt-[20px]">
-            <Link
-              href="/profile"
-              className="btn-ghost inline-flex items-center gap-[8px] bg-white/90 text-[#192830] border border-[#192830] rounded-[4px] px-[20px] py-[0px] text-[16px] tracking-[-0.32px] leading-[42px]"
-            >
-              重新填写老人档案
-            </Link>
-          </div>
         </div>
       </section>
 
