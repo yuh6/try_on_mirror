@@ -160,7 +160,7 @@ export default function HomePage() {
             ！！！此项目，需要结合实际的手机硬件，这里做个模拟原型来模拟手机通话，请点击下面的开始使用或者手机屏幕吧
           </p>
 
-          {/* 按钮排：直接开始使用（左） + 重新填写老人档案（右） */}
+          {/* 直接开始使用 */}
           <div className="flex items-center gap-[14px] mt-[18px] flex-wrap">
             <button
               type="button"
@@ -170,19 +170,13 @@ export default function HomePage() {
               直接开始使用
               <span className="arrow text-[18px]">→</span>
             </button>
-            <Link
-              href="/profile"
-              className="btn-ghost inline-flex items-center gap-[8px] bg-white/90 text-[#192830] border border-white rounded-[4px] px-[20px] py-[0px] text-[16px] tracking-[-0.32px] leading-[42px]"
-            >
-              重新填写老人档案
-            </Link>
           </div>
 
           {/* 小猫打电话图片（点击进入通话原型） */}
           <button
             type="button"
             onClick={startPhone}
-            className="rounded-[16px] shadow-2xl block cursor-pointer transition-transform hover:scale-[1.02] mt-[24px]"
+            className="rounded-[16px] shadow-2xl block cursor-pointer transition-transform hover:scale-[1.02] mt-[28px]"
             title="点击进入手机通话模拟"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -190,27 +184,19 @@ export default function HomePage() {
               src="/static/caregiver.jpg"
               alt="小棉袄小猫打电话（点击直接开始使用）"
               className="rounded-[16px]"
-              style={{ maxHeight: "220px", maxWidth: "100%", width: "auto", objectFit: "cover", display: "block" }}
+              style={{ maxHeight: "280px", maxWidth: "100%", width: "auto", objectFit: "cover", display: "block" }}
             />
           </button>
-        </div>
 
-        {/* 手机图片（可点击进入通话原型） */}
-        <div className="hero-wordmark absolute z-10 right-[34px] bottom-[40px]">
-          <button
-            type="button"
-            onClick={startPhone}
-            className="rounded-[20px] shadow-2xl block cursor-pointer transition-transform hover:scale-[1.02]"
-            title="点击进入手机通话模拟"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/static/hero-phone.jpg"
-              alt="小棉袄手机界面（点击开始使用）"
-              className="rounded-[20px]"
-              style={{ maxHeight: "45vh", width: "auto", objectFit: "cover", display: "block" }}
-            />
-          </button>
+          {/* 重新填写老人档案（猫咪图片下方） */}
+          <div className="mt-[20px]">
+            <Link
+              href="/profile"
+              className="btn-ghost inline-flex items-center gap-[8px] bg-white/90 text-[#192830] border border-[#192830] rounded-[4px] px-[20px] py-[0px] text-[16px] tracking-[-0.32px] leading-[42px]"
+            >
+              重新填写老人档案
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -231,6 +217,16 @@ export default function HomePage() {
             >
               小棉袄每天替你打那通&ldquo;本来想打但太忙了&rdquo;的电话，然后把老人今天的状态——心情、身体、有没有什么心事——悄悄汇报给你。
             </p>
+
+            <div data-aos="fade-up" data-aos-delay="300" className="mt-[40px]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/static/hero-phone.jpg"
+                alt="小棉袄手机界面"
+                className="rounded-[16px] shadow-lg"
+                style={{ maxWidth: 260, width: "100%", height: "auto" }}
+              />
+            </div>
           </div>
 
           {/* 散落头像 */}
