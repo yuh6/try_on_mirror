@@ -34,10 +34,21 @@ export async function POST(request: Request) {
       .map((t) => `${t.role === "user" ? "老人" : "小棉"}：${t.content}`)
       .join("\n");
 
-    const prompt = `你是一个 AI 陪伴电话系统的通话记录分析员。下面是今天小棉袄（AI）给老人打的一通关怀电话的对话记录。请你站在"给子女看的汇报"角度，输出严格 JSON（不要加其他内容、不要加markdown包裹）：
+    // 服务器的真实日期时间（东八区）——AI 不许猜日期
+    const nowLabel = new Intl.DateTimeFormat("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      month: "numeric",
+      day: "numeric",
+      weekday: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date());
+
+    const prompt = `你是一个 AI 陪伴电话系统的通话记录分析员。现在是${nowLabel}（北京时间）。下面是刚刚小棉袄（AI）给老人打的一通关怀电话的对话记录。请你站在"给子女看的汇报"角度，输出严格 JSON（不要加其他内容、不要加markdown包裹）：
 
 {
-  "summary": "一句话摘要，60字以内，开头带上今天的日期（如'8/15 通话：'），有异常用🚨开头",
+  "summary": "一句话摘要，60字以内，开头带上今天的日期（今天的日期以我给你的时间为准，格式如'${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric" }).format(new Date())} 通话：'），有异常用🚨开头",
   "mood": "老人情绪，从这些里选一个：开心/平静/低落/想念/担忧/紧急",
   "details": "详细汇报，300字以内：聊了什么、老人身体状况（药吃了没）、情绪变化、有没有需要子女注意的事"
 }
