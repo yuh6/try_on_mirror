@@ -1,55 +1,70 @@
 "use client";
 
-import { useEffect, useState } from "react";
+export interface CalendarMood {
+  date: string; // "YYYY-MM-DD"
+  mood: string;
+  note: string;
+}
+
+const MOOD_EMOJI: Record<string, string> = {
+  平静: "😌",
+  开心: "😊",
+  低落: "😔",
+  想念: "🥺",
+  担忧: "😟",
+  紧急: "🚨",
+};
 
 interface DayCell {
   day: number;
-  mood?: string; // 有值表示当天有通话
+  mood?: string;
   urgent?: boolean;
   low?: boolean;
 }
 
-/** 关怀日历（原 board.html 内联脚本移植；挂载后计算避免 SSR 时差错位）。 */
-export function CalendarCard() {
-  const [cells, setCells] = useState<(DayCell | null)[]>([]);
-  const [label, setLabel] = useState("");
-  const [today, setToday] = useState(-1);
+/**
+ * 关怀日历：以服务器时间为准（不信任客户端时钟），
+ * 有通话记录（心情）的日子标表情，今天高亮。
+ */
+export function CalendarCard({
+  moods,
+  todayISO,
+}: {
+  moods: CalendarMood[];
+  todayISO: string; // "YYYY-MM-DD"（服务器的今天，东八区）
+}) {
+  const [y, m, d] = todayISO.split("-").map(Number);
+  const year = y;
+  const month = m - 1; // 0-11
+  const todayDay = d;
 
-  useEffect(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth(); // 0-11
+  const monthNames = [
+    "1月", "2月", "3月", "4月", "5月", "6月",
+    "7月", "8月", "9月", "10月", "11月", "12月",
+  ];
+  const label = `${year}年${monthNames[month]}`;
 
-    const monthNames = [
-      "1月", "2月", "3月", "4月", "5月", "6月",
-      "7月", "8月", "9月", "10月", "11月", "12月",
-    ];
-    setLabel(`${year}年${monthNames[month]}`);
-    setToday(now.getDate());
+  const firstDay = new Date(year, month, 1).getDay(); // 0=周日
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-    const firstDay = new Date(year, month, 1).getDay(); // 0=周日
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    // 演示数据：三天 demo（8/10 平静、8/11 想念、8/12 紧急）
-    const dayData: Record<number, string> = {
-      10: "😌",
-      11: "🥺",
-      12: "🚨",
-    };
-
-    const result: (DayCell | null)[] = [];
-    for (let i = 0; i < firstDay; i++) result.push(null);
-    for (let d = 1; d <= daysInMonth; d++) {
-      const mood = dayData[d];
-      result.push({
-        day: d,
-        mood,
-        urgent: mood === "🚨",
-        low: mood === "😔",
-      });
+  // 数据库心情记录 → 当月日期 → 表情
+  const monthPrefix = `${year}-${String(m).padStart(2, "0")}-`;
+  const dayData: Record<number, string> = {};
+  for (const mo of moods) {
+    if (mo.date.startsWith(monthPrefix)) {
+      const day = Number(mo.date.slice(8, 10));
+      if (day >= 1 && day <= daysInMonth) {
+        dayData[day] = MOOD_EMOJI[mo.mood] ?? "📝";
+      }
     }
-    setCells(result);
-  }, []);
+  }
+
+  const cells: (DayCell | null)[] = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) {
+    const mood = dayData[day];
+    cells.push({ day, mood, urgent: mood === "🚨", low: mood === "😔" });
+  }
 
   return (
     <div className="card p-4" style={{ flex: 1, minWidth: 240, maxWidth: 340 }}>
@@ -81,8 +96,8 @@ export function CalendarCard() {
                       ? "rgba(137,137,137,0.1)"
                       : "rgba(255,216,95,0.15)"
                   : "rgba(255,255,255,0.3)",
-                border: c.day === today ? "1.5px solid #303030" : undefined,
-                fontWeight: c.day === today ? 600 : undefined,
+                border: c.day === todayDay ? "1.5px solid #303030" : undefined,
+                fontWeight: c.day === todayDay ? 600 : undefined,
               }}
             >
               <span className={c.mood ? "text-[#303030]" : "text-[#898989]"}>

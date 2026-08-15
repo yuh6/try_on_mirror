@@ -59,11 +59,25 @@ export default function PhonePage() {
   const [callClock, setCallClock] = useState("00:00");
   const [realtimeMode, setRealtimeMode] = useState(false); // 真人语音模式（走桥）
 
-  /* ---------- 真实系统时间（锁屏/来电显示） ---------- */
+  /* ---------- 真实时间（锁屏/来电显示，以服务器时间为准） ---------- */
   const [now, setNow] = useState<Date | null>(null); // null 避免 SSR 水合不匹配
+  const serverOffsetRef = useRef(0); // 服务器时间 - 本地时间 的偏移
   useEffect(() => {
+    // 先用本地时钟兜底显示，再用服务器时间校准偏移
     setNow(new Date());
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    fetch("/api/time")
+      .then((r) => r.json())
+      .then((d: { epochMs?: number }) => {
+        if (typeof d.epochMs === "number") {
+          serverOffsetRef.current = d.epochMs - Date.now();
+          setNow(new Date(Date.now() + serverOffsetRef.current));
+        }
+      })
+      .catch(() => {});
+    const timer = setInterval(
+      () => setNow(new Date(Date.now() + serverOffsetRef.current)),
+      1000
+    );
     return () => clearInterval(timer);
   }, []);
 

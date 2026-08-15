@@ -21,6 +21,11 @@ export default async function BoardPage() {
   const [{ elder_profile: profile, messages, reports, todos, moods }, stats] =
     await Promise.all([getAllData(), getStats()]);
 
+  // 服务器的"今天"（东八区），日历以它为准，不信任浏览器时钟
+  const todayISO = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai",
+  }).format(new Date());
+
   const latestMood = moods[0];
   const latestReport = reports[0];
   const doneCount = todos.filter((t) => t.done).length;
@@ -356,20 +361,26 @@ export default async function BoardPage() {
 
         {/* 本周总结 + 日历并排 */}
         <div className="flex flex-wrap gap-3 mt-3 items-start">
-          {/* 本周总结 */}
+          {/* 本周总结（最近的心情记录，取最新3条） */}
           <div
             className="card p-5 flex flex-col gap-3"
             style={{ flex: 1, minWidth: 240, maxWidth: 340 }}
           >
-            <span className="text-lg text-[#303030]">本周总结</span>
+            <span className="text-lg text-[#303030]">最近动态</span>
             <div className="flex flex-col gap-3">
-              <WeeklyRow date="8/10" mood="😌 平静" urgent={false} text="降温下雨居家，看戏曲频道，降压药延迟1次" />
-              <WeeklyRow date="8/11" mood="🥺 想念" urgent={false} text="想念儿子，下午和刘姨王姨打牌，预约回忆录" />
-              <WeeklyRow date="8/12" mood="🚨 紧急" urgent={true} text="厕所滑倒，腰疼腿麻，小王陪同就医" />
+              {moods.slice(0, 3).map((m) => (
+                <WeeklyRow
+                  key={m.date}
+                  date={`${Number(m.date.slice(5, 7))}/${Number(m.date.slice(8, 10))}`}
+                  mood={`${MOOD_EMOJI[m.mood] ?? "📝"} ${m.mood}`}
+                  urgent={m.mood === "紧急"}
+                  text={m.note}
+                />
+              ))}
             </div>
           </div>
 
-          <CalendarCard />
+          <CalendarCard moods={moods} todayISO={todayISO} />
         </div>
 
         <div className="h-6"></div>
