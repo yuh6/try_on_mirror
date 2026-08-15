@@ -123,6 +123,22 @@ export async function getAllMessages(): Promise<BoardMessage[]> {
 
 /* ---------- 汇报 ---------- */
 
+export async function addReport(
+  summary: string,
+  mood = "",
+  details = ""
+): Promise<BoardReport> {
+  const report: BoardReport = {
+    id: genId(),
+    time: nowStr(),
+    summary,
+    mood,
+    details,
+  };
+  await db.insert(boardReports).values(report);
+  return report;
+}
+
 export async function getAllReports(): Promise<BoardReport[]> {
   const rows = await db
     .select()
@@ -151,6 +167,21 @@ export async function getAllTodos(): Promise<BoardTodo[]> {
 }
 
 /* ---------- 心情 ---------- */
+
+export async function addMood(mood: string, note = ""): Promise<BoardMood> {
+  const record: BoardMood = {
+    date: todayStr(),
+    mood,
+    note,
+    time: nowStr(),
+  };
+  // 同一天只保留最新一条（date 是主键，upsert 覆盖）
+  await db
+    .insert(boardMoods)
+    .values(record)
+    .onConflictDoUpdate({ target: boardMoods.date, set: record });
+  return record;
+}
 
 export async function getAllMoods(): Promise<BoardMood[]> {
   const rows = await db.select().from(boardMoods).orderBy(desc(boardMoods.date));

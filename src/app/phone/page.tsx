@@ -81,6 +81,25 @@ export default function PhonePage() {
   /* ---------- 对话历史（发给服务端） ---------- */
   const historyRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
 
+  /* ---------- 通话记录（挂断后总结上板用） ---------- */
+  const transcriptRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [reportStatus, setReportStatus] = useState<"" | "sending" | "done" | "fail">("");
+
+  async function sendCallReport() {
+    if (transcriptRef.current.length < 2) return; // 没实质对话不上报
+    setReportStatus("sending");
+    try {
+      const res = await fetch("/api/call/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history: transcriptRef.current }),
+      });
+      setReportStatus(res.ok ? "done" : "fail");
+    } catch {
+      setReportStatus("fail");
+    }
+  }
+
   /* ---------- 音频：铃声 + TTS ---------- */
   const audioCtxRef = useRef<AudioContext | null>(null);
   const ringRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -253,6 +272,7 @@ export default function PhonePage() {
     if (!opening) {
       setBubbles((b) => [...b, { role: "user", text }]);
       historyRef.current.push({ role: "user", content: text });
+      transcriptRef.current.push({ role: "user", content: text });
     }
     setThinking(true);
 
@@ -271,6 +291,7 @@ export default function PhonePage() {
       setThinking(false);
       setBubbles((b) => [...b, { role: "assistant", text: reply }]);
       historyRef.current.push({ role: "assistant", content: reply });
+      transcriptRef.current.push({ role: "assistant", content: reply });
       // 小棉说完再继续听
       speak(reply, () => {
         if (wantListenRef.current || screenActiveRef.current) startListening();
@@ -409,8 +430,10 @@ export default function PhonePage() {
           done(true);
         } else if (msg.t === "user_text" && msg.text) {
           setBubbles((b) => [...b, { role: "user", text: msg.text! }]);
+          transcriptRef.current.push({ role: "user", content: msg.text! });
         } else if (msg.t === "assistant_text" && msg.text) {
           setBubbles((b) => [...b, { role: "assistant", text: msg.text! }]);
+          transcriptRef.current.push({ role: "assistant", content: msg.text! });
         } else if (msg.t === "qwen_audio" && msg.a) {
           rtPlayChunk(msg.a);
         } else if (msg.t === "speaking") {
@@ -462,6 +485,8 @@ export default function PhonePage() {
       setXiaomianSpeaking(false);
     }
     setScreen("locked");
+    // 挂断后自动把这通电话总结到看板
+    sendCallReport();
   }
 
   /* ---------- 通话计时（真实通话时长，00:00 起计） ---------- */
@@ -521,6 +546,21 @@ export default function PhonePage() {
                       ? "通话已结束"
                       : "等待 AI 来电…"}
                   </div>
+                  {reportStatus === "sending" && (
+                    <div className="lock-hint-text" style={{ color: "rgba(27,194,194,0.9)" }}>
+                      正在把通话总结写到看板…
+                    </div>
+                  )}
+                  {reportStatus === "done" && (
+                    <div className="lock-hint-text" style={{ color: "#2FDB78" }}>
+                      ✓ 通话总结已写入看板
+                    </div>
+                  )}
+                  {reportStatus === "fail" && (
+                    <div className="lock-hint-text" style={{ color: "#FF858B" }}>
+                      总结写入失败（可稍后重试）
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
