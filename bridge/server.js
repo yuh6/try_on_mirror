@@ -38,6 +38,8 @@ const WS_BASE = (
 const QWEN_URL = `${WS_BASE}/api-ws/v1/realtime?model=${MODEL}`;
 // 网站地址：从这里读取老人的最新档案（子女改档案页 → 下次电话即生效）
 const WEBSITE = process.env.WEBSITE_API || "https://try-on-mirror.vercel.app";
+// 插话灵敏度：安静多少毫秒判定"说完了"（老人说话慢、停顿多 → 调大更耐心，默认2000）
+const VAD_SILENCE_MS = Number(process.env.VAD_SILENCE_MS || 2000);
 
 /* ---------- 档案 + 实时上下文（时间/真实天气） ---------- */
 
@@ -202,7 +204,7 @@ wss.on("connection", (browserWs) => {
               turn_detection: {
                 type: "server_vad",
                 threshold: 0.5,
-                silence_duration_ms: 800,
+                silence_duration_ms: VAD_SILENCE_MS,
               },
               input_audio_format: "pcm",
               output_audio_format: "pcm",
