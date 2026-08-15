@@ -660,6 +660,17 @@ export function ProfileClient({
                   onChange={(e) => setField("personality", e.target.value)}
                 />
               </div>
+
+              <div className="mt-4">
+                <label className="field-label">说话习惯</label>
+                <div className="field-hint">口头禅、怎么称呼小棉、情绪表达方式——小棉会顺着这个调子接话</div>
+                <input
+                  type="text"
+                  className="field-input"
+                  value={profile.speech_habits}
+                  onChange={(e) => setField("speech_habits", e.target.value)}
+                />
+              </div>
             </div>
 
             {/* 05 AI人设 */}
