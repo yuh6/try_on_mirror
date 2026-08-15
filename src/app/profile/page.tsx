@@ -10,11 +10,11 @@ export const metadata: Metadata = {
 };
 
 export default async function ProfilePage() {
-  // 打开即显示已保存的老人档案（张阿姨的演示数据已内置在种子数据里）
+  // 档案页：直接显示已保存的老人档案，可编辑保存（无AI对话）
   const profile = await loadElderProfile();
   return (
     <Suspense>
-      <ProfileClient initialProfile={profile} />
+      <ProfileClient initialProfile={profile} showChat={false} />
     </Suspense>
   );
 }

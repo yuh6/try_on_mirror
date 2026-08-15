@@ -26,7 +26,14 @@ interface ChatBubble {
   text: string;
 }
 
-export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile }) {
+export function ProfileClient({
+  initialProfile,
+  showChat = false,
+}: {
+  initialProfile: ElderProfile;
+  /** true = 重新填写模式（带AI对话引导）；false = 纯档案编辑 */
+  showChat?: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -46,8 +53,9 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
   const historyRef = useRef<{ role: "user" | "assistant"; text: string }[]>([]);
   const collectedRef = useRef<CollectedProfile>({});
 
-  // 开场白
+  // 开场白（仅重新填写模式）
   useEffect(() => {
+    if (!showChat) return;
     let cancelled = false;
     fetch("/api/voice/start", { method: "POST" })
       .then((r) => r.json())
@@ -271,7 +279,8 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
             </div>
           )}
 
-          {/* AI 对话式填表（真·小棉引导） */}
+          {/* AI 对话式填表（仅"重新填写档案"模式显示） */}
+          {showChat && (
           <div
             className="rounded-[6px] p-6 mb-10"
             style={{
@@ -379,6 +388,7 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
                 : "回车发送 · 点🎤可语音说 · 小棉会一步步引导你，聊完自动填好下面的档案"}
             </p>
           </div>
+          )}
 
           {/* 档案表单 */}
           <form onSubmit={onSubmit}>

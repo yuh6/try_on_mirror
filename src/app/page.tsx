@@ -136,7 +136,7 @@ export default function HomePage() {
               档案
             </Link>
             <Link
-              href="/profile"
+              href="/profile/new"
               className="btn-ghost text-[#192830] bg-white border border-[#192830] rounded-[6px] px-[18px] py-[4px] text-[16px] tracking-[-0.32px]"
             >
               重新填写档案
