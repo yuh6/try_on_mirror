@@ -24,7 +24,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { WebSocketServer, WebSocket } = require("ws");
-const { CALL_PERSONA, OPENING_TRIGGER } = require("./persona");
+const { FALLBACK_PROFILE, buildCallPersona, OPENING_TRIGGER } = require("./persona");
 
 /* ---------- 配置 ---------- */
 
@@ -36,6 +36,77 @@ const WS_BASE = (
   process.env.DASHSCOPE_BASE_URL || "https://token-plan.cn-beijing.maas.aliyuncs.com"
 ).replace(/^http/, "ws").replace(/\/compatible-mode\/v1\/?$/, "");
 const QWEN_URL = `${WS_BASE}/api-ws/v1/realtime?model=${MODEL}`;
+// 网站地址：从这里读取老人的最新档案（子女改档案页 → 下次电话即生效）
+const WEBSITE = process.env.WEBSITE_API || "https://try-on-mirror.vercel.app";
+
+/* ---------- 档案 + 实时上下文（时间/真实天气） ---------- */
+
+const profileCache = { at: 0, profile: null };
+
+async function loadProfile() {
+  if (Date.now() - profileCache.at < 300_000 && profileCache.profile) {
+    return profileCache.profile; // 5 分钟缓存
+  }
+  try {
+    const res = await fetch(`${WEBSITE}/api/profile`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const p = await res.json();
+      if (p && (p.name || p.title)) {
+        profileCache.profile = p;
+        profileCache.at = Date.now();
+        return p;
+      }
+    }
+  } catch {
+    /* 网站不可达，用兜底档案 */
+  }
+  profileCache.profile = FALLBACK_PROFILE;
+  profileCache.at = Date.now();
+  return FALLBACK_PROFILE;
+}
+
+const weatherCache = { at: 0, text: "" };
+
+async function getLiveContext(city) {
+  const parts = [];
+  const now = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+  parts.push(`现在是${now}（北京时间）`);
+
+  if (city && Date.now() - weatherCache.at > 600_000) {
+    try {
+      const res = await fetch(
+        `https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=zh`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      const j = await res.json();
+      const c = j.current_condition && j.current_condition[0];
+      if (c) {
+        const desc =
+          (c.lang_zh && c.lang_zh[0] && c.lang_zh[0].value) ||
+          (c.weatherDesc && c.weatherDesc[0] && c.weatherDesc[0].value) ||
+          "";
+        weatherCache.text = `${desc} ${c.temp_C}°C（体感${c.FeelsLikeC}°C）`;
+        weatherCache.at = Date.now();
+      }
+    } catch {
+      weatherCache.text = "";
+      weatherCache.at = Date.now();
+    }
+  }
+  if (city && weatherCache.text) parts.push(`${city}当前天气：${weatherCache.text}`);
+  return parts.join("；");
+}
 
 function loadKeyFromRootEnv() {
   // 本地运行：读项目根目录 .env（Railway 上走真正的环境变量）
@@ -97,25 +168,37 @@ wss.on("connection", (browserWs) => {
         send({ t: "error", message: "桥未配置 DASHSCOPE_API_KEY" });
         return;
       }
-      log("接听，正在连接千问 Realtime…");
-      try {
-        qwenWs = new WebSocket(QWEN_URL, {
-          headers: { Authorization: `Bearer ${KEY}` },
-        });
-      } catch (e) {
-        send({ t: "error", message: "连接千问失败：" + e.message });
-        return;
-      }
+      log("接听，正在准备档案和实时信息…");
+      (async () => {
+        const profile = await loadProfile();
+        let liveCtx = "";
+        try {
+          liveCtx = await getLiveContext(profile.living || "大连");
+        } catch {
+          /* ignore */
+        }
+        const instructions =
+          buildCallPersona(profile) + (liveCtx ? `\n\n【实时信息】${liveCtx}` : "");
 
-      qwenWs.on("open", () => {
-        log("千问已连接，发送 session 配置…");
-        qwenWs.send(
-          JSON.stringify({
-            type: "session.update",
-            session: {
-              modalities: ["audio", "text"],
-              voice: VOICE,
-              instructions: CALL_PERSONA,
+        log("正在连接千问 Realtime…");
+        try {
+          qwenWs = new WebSocket(QWEN_URL, {
+            headers: { Authorization: `Bearer ${KEY}` },
+          });
+        } catch (e) {
+          send({ t: "error", message: "连接千问失败：" + e.message });
+          return;
+        }
+
+        qwenWs.on("open", () => {
+          log("千问已连接，发送 session 配置…");
+          qwenWs.send(
+            JSON.stringify({
+              type: "session.update",
+              session: {
+                modalities: ["audio", "text"],
+                voice: VOICE,
+                instructions,
               turn_detection: {
                 type: "server_vad",
                 threshold: 0.5,
@@ -200,6 +283,7 @@ wss.on("connection", (browserWs) => {
         log("千问连接错误：", err.message);
         send({ t: "error", message: "连接千问出错：" + err.message });
       });
+      })();
       return;
     }
 
