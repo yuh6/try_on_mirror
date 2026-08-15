@@ -56,8 +56,27 @@ export default function PhonePage() {
   const [listening, setListening] = useState(false);
   const [xiaomianSpeaking, setXiaomianSpeaking] = useState(false);
   const [error, setError] = useState("");
-  const [callClock, setCallClock] = useState("08:03");
+  const [callClock, setCallClock] = useState("00:00");
   const [realtimeMode, setRealtimeMode] = useState(false); // 真人语音模式（走桥）
+
+  /* ---------- 真实系统时间（锁屏/来电显示） ---------- */
+  const [now, setNow] = useState<Date | null>(null); // null 避免 SSR 水合不匹配
+  useEffect(() => {
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const lockTime = now
+    ? now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+    : "--:--";
+  const lockDate = now
+    ? new Intl.DateTimeFormat("zh-CN", {
+        month: "long",
+        day: "numeric",
+        weekday: "long",
+      }).format(now)
+    : "";
 
   /* ---------- 对话历史（发给服务端） ---------- */
   const historyRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
@@ -445,19 +464,22 @@ export default function PhonePage() {
     setScreen("locked");
   }
 
-  /* ---------- 通话计时（虚拟时间：15秒真实 = 1分钟虚拟，起点 8:03） ---------- */
+  /* ---------- 通话计时（真实通话时长，00:00 起计） ---------- */
   useEffect(() => {
     if (screen !== "active") {
-      setCallClock("08:03");
+      setCallClock("00:00");
       return;
     }
     const startedAt = Date.now();
-    const startTotalMin = 8 * 60 + 3;
     const timer = setInterval(() => {
-      const realSec = Math.floor((Date.now() - startedAt) / 1000);
-      const total = startTotalMin + Math.floor(realSec / 15);
+      const sec = Math.floor((Date.now() - startedAt) / 1000);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
       setCallClock(
-        `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
+        h > 0
+          ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+          : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
       );
     }, 1000);
     return () => clearInterval(timer);
@@ -491,8 +513,8 @@ export default function PhonePage() {
                 <span className="status-chip">语音 AI</span>
               </div>
               <div className="stage-content">
-                <div className="lock-clock">08:03</div>
-                <div className="lock-date">8月10日 星期一</div>
+                <div className="lock-clock">{lockTime}</div>
+                <div className="lock-date">{lockDate}</div>
                 <div style={{ marginTop: 48 }}>
                   <div className="lock-hint-text">
                     {screen === "locked" && bubbles.length > 0
@@ -507,7 +529,7 @@ export default function PhonePage() {
             <div className={`screen ${screen === "incoming" ? "active" : ""}`}>
               <Aurora />
               <div className="status-bar">
-                <span>08:03</span>
+                <span>{lockTime}</span>
                 <span className="status-chip">
                   <span className="status-dot"></span>语音 AI
                 </span>
