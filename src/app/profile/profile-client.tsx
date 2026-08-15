@@ -1,10 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { ElderProfile } from "@/lib/elder-profile";
+import type { ElderProfile, CollectedProfile } from "@/lib/elder-profile";
 import { EMPTY_ELDER_PROFILE } from "@/lib/elder-profile";
+
+/* ---------- Web Speech API 最小类型声明 ---------- */
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult:
+    | ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void)
+    | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+interface ChatBubble {
+  role: "ai" | "user";
+  text: string;
+}
 
 export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile }) {
   const router = useRouter();
@@ -16,6 +36,157 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  /* ---------- 和小棉聊聊（真 AI 对话式填表） ---------- */
+  const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const [chatDone, setChatDone] = useState(false);
+  const chatAreaRef = useRef<HTMLDivElement>(null);
+  const historyRef = useRef<{ role: "user" | "assistant"; text: string }[]>([]);
+  const collectedRef = useRef<CollectedProfile>({});
+
+  // 开场白
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/voice/start", { method: "POST" })
+      .then((r) => r.json())
+      .then((d: { reply?: string }) => {
+        if (!cancelled && d.reply) {
+          setBubbles([{ role: "ai", text: d.reply }]);
+          historyRef.current.push({ role: "assistant", text: d.reply });
+        }
+      })
+      .catch(() => {
+        if (!cancelled)
+          setBubbles([{ role: "ai", text: "您好，我是小棉袄。请问您是老人的什么人呀？" }]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 气泡变化时滚动到底部
+  useEffect(() => {
+    const el = chatAreaRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [bubbles.length, thinking]);
+
+  async function sendChat() {
+    const text = chatInput.trim();
+    if (!text || thinking || chatDone) return;
+
+    setBubbles((b) => [...b, { role: "user", text }]);
+    setChatInput("");
+    historyRef.current.push({ role: "user", text });
+    setThinking(true);
+
+    try {
+      const res = await fetch("/api/voice/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          history: historyRef.current.slice(0, -1),
+          collected: collectedRef.current,
+        }),
+      });
+      const data = (await res.json()) as {
+        reply?: string;
+        profile?: CollectedProfile;
+        complete?: boolean;
+      };
+      setThinking(false);
+      const reply =
+        data.reply ?? "网络出了点问题，咱们继续？";
+      setBubbles((b) => [...b, { role: "ai", text: reply }]);
+      historyRef.current.push({ role: "assistant", text: reply });
+      if (data.profile) collectedRef.current = data.profile;
+
+      if (data.complete) {
+        // 收集完成 → 后端已自动保存档案 → 刷新页面显示新档案
+        setChatDone(true);
+        setTimeout(() => {
+          window.location.href = "/profile?voice=1";
+        }, 1800);
+      }
+    } catch {
+      setThinking(false);
+      setBubbles((b) => [...b, { role: "ai", text: "网络出了点问题，咱们继续？" }]);
+    }
+  }
+
+  /* ---------- 麦克风（可选语音输入） ---------- */
+  const [micActive, setMicActive] = useState(false);
+  const speechRef = useRef<SpeechRecognitionLike | null>(null);
+  const micActiveRef = useRef(false);
+
+  function initSpeech(): boolean {
+    if (typeof window === "undefined") return false;
+    const SR = (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor })
+      .SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor })
+        .webkitSpeechRecognition;
+    if (!SR) return false;
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setChatInput(transcript);
+    };
+    rec.onerror = (event) => {
+      if (event.error === "not-allowed") alert("请允许使用麦克风权限");
+      stopMic();
+    };
+    rec.onend = () => {
+      if (micActiveRef.current) {
+        try {
+          rec.start();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    speechRef.current = rec;
+    return true;
+  }
+
+  function toggleMic() {
+    if (micActive) stopMic();
+    else startMic();
+  }
+
+  function startMic() {
+    if (!speechRef.current && !initSpeech()) {
+      alert("您的浏览器不支持语音识别，请用 Chrome 或 Edge（或直接打字）");
+      return;
+    }
+    micActiveRef.current = true;
+    setMicActive(true);
+    setChatInput("");
+    try {
+      speechRef.current?.start();
+    } catch {
+      /* already started */
+    }
+  }
+
+  function stopMic() {
+    micActiveRef.current = false;
+    setMicActive(false);
+    try {
+      speechRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const inputDisabled = chatDone;
 
   // 保存徽章（?voice=1 来自语音填表完成跳转；保存成功后本地置位）
   const voiceSaved = searchParams.get("voice") === "1";
@@ -99,6 +270,115 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
               {voiceSaved && !justSaved ? "✓ 语音录入完成，档案已保存" : "✓ 档案已保存"}
             </div>
           )}
+
+          {/* AI 对话式填表（真·小棉引导） */}
+          <div
+            className="rounded-[6px] p-6 mb-10"
+            style={{
+              background: "rgba(255,255,255,0.7)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(228,231,218,0.6)",
+              boxShadow: "0 2px 20px rgba(0,0,0,0.04)",
+            }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-[20px]">🌸</span>
+              <span className="text-[18px] text-[#2f3136] font-medium">和小棉聊聊老人</span>
+            </div>
+
+            {/* 对话区 */}
+            <div
+              ref={chatAreaRef}
+              className="flex flex-col gap-3 mb-4 min-h-[120px] max-h-[320px] overflow-y-auto"
+            >
+              {bubbles.map((b, i) => (
+                <div
+                  key={i}
+                  className={`flex ${b.role === "ai" ? "justify-start" : "justify-end"}`}
+                >
+                  <div
+                    className={`max-w-[80%] rounded-[16px] ${
+                      b.role === "ai" ? "rounded-tl-[4px]" : "rounded-tr-[4px]"
+                    } px-4 py-2.5 text-[14px] leading-[1.5]`}
+                    style={
+                      b.role === "ai"
+                        ? { background: "#e4e7da", color: "#2f3136" }
+                        : { background: "#192830", color: "white" }
+                    }
+                  >
+                    {b.role === "ai" ? `🌸 ${b.text}` : b.text}
+                  </div>
+                </div>
+              ))}
+              {thinking && (
+                <div className="flex justify-start">
+                  <div
+                    className="rounded-[16px] rounded-tl-[4px] px-4 py-3 text-[14px]"
+                    style={{ background: "#e4e7da", color: "#2f3136" }}
+                  >
+                    <span className="inline-flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot" />
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot"
+                        style={{ animationDelay: "0.2s" }}
+                      />
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-[#898989] typing-dot"
+                        style={{ animationDelay: "0.4s" }}
+                      />
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 输入区 */}
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    sendChat();
+                  }
+                }}
+                disabled={inputDisabled}
+                className="field-input flex-1"
+                style={{
+                  background: "rgba(255,255,255,0.9)",
+                  opacity: inputDisabled ? 0.4 : undefined,
+                }}
+                placeholder={micActive ? "正在聆听..." : ""}
+              />
+              <button
+                type="button"
+                onClick={toggleMic}
+                className="w-[42px] h-[42px] rounded-[6px] flex items-center justify-center transition-all flex-shrink-0"
+                style={{
+                  background: micActive ? "#c0392b" : "rgba(255,255,255,0.9)",
+                  border: micActive ? "1px solid #c0392b" : "1px solid #e4e7da",
+                }}
+                title="语音输入（可选）"
+              >
+                {micActive ? "■" : "🎤"}
+              </button>
+              <button
+                type="button"
+                onClick={sendChat}
+                disabled={inputDisabled}
+                className="bg-[#192830] text-white px-5 py-2.5 rounded-[6px] text-[14px] hover:opacity-85 transition-opacity whitespace-nowrap h-[42px] disabled:opacity-50"
+              >
+                发送
+              </button>
+            </div>
+            <p className="text-[12px] text-[#898989] mt-2">
+              {chatDone
+                ? "✓ 聊完了，档案已自动保存，正在刷新…"
+                : "回车发送 · 点🎤可语音说 · 小棉会一步步引导你，聊完自动填好下面的档案"}
+            </p>
+          </div>
 
           {/* 档案表单 */}
           <form onSubmit={onSubmit}>
@@ -538,6 +818,11 @@ export function ProfileClient({ initialProfile }: { initialProfile: ElderProfile
           margin-bottom: 20px;
           text-align: center;
         }
+        @keyframes blink {
+          0%, 60%, 100% { opacity: 0.3; }
+          30% { opacity: 1; }
+        }
+        .typing-dot { animation: blink 1.4s infinite; }
       `}</style>
     </main>
   );
