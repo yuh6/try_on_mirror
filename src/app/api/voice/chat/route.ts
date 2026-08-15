@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { handleApiRoute } from "@/lib/api-helpers";
 import { saveElderProfile } from "@/lib/family-board";
+import { getCurrentOwnerId } from "@/lib/auth";
 import {
   processVoiceReply,
   collectedToProfile,
@@ -54,9 +55,10 @@ export async function POST(request: Request) {
     const collected = body.collected as CollectedProfile;
     const result = await processVoiceReply(history, collected, body.text);
 
-    // 收集完成 → 自动存档（与 Flask 版行为一致）
+    // 收集完成 → 自动存档（存到当前登录人的空间）
     if (result.complete) {
-      await saveElderProfile(collectedToProfile(result.profile));
+      const owner = await getCurrentOwnerId();
+      await saveElderProfile(owner, collectedToProfile(result.profile));
     }
 
     return result;

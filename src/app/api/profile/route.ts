@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { handleApiRoute } from "@/lib/api-helpers";
 import { loadElderProfile, saveElderProfile } from "@/lib/family-board";
+import { getCurrentOwnerId } from "@/lib/auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const healthItemSchema = z.object({
   name: z.string().default(""),
@@ -41,19 +43,21 @@ const profileSchema = z.object({
   emotion_style: z.string().default(""),
 });
 
-/** 老人档案 JSON（与 Flask 版 GET /api/elder_profile 一致）。 */
+/** 当前登录人（或演示）的老人档案。 */
 export async function GET() {
   return handleApiRoute("profile:get", async () => {
-    return await loadElderProfile();
+    const owner = await getCurrentOwnerId();
+    return await loadElderProfile(owner);
   });
 }
 
-/** 保存老人档案（替代 Flask 版 POST /save_profile 表单）。 */
+/** 保存老人档案（存到当前登录人的空间）。 */
 export async function POST(request: Request) {
   return handleApiRoute("profile:save", async () => {
     const json = await request.json().catch(() => null);
     const profile = profileSchema.parse(json);
-    await saveElderProfile(profile);
+    const owner = await getCurrentOwnerId();
+    await saveElderProfile(owner, profile);
     return { saved: true, name: profile.name };
   });
 }

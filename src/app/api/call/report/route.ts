@@ -3,6 +3,7 @@ import { handleApiRoute } from "@/lib/api-helpers";
 import { AppError } from "@/lib/errors";
 import { qwenChat, isQwenConfigured } from "@/lib/qwen";
 import { addReport, addMood } from "@/lib/family-board";
+import { getCurrentOwnerId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -85,10 +86,11 @@ ${transcript}`;
     const mood = parsed.mood || "平静";
     const details = parsed.details || "";
 
-    const report = await addReport(summary, mood, details);
-    // 当日心情也更新（同一天只留最新一条）
+    // 写入当前登录人的看板（未登录 → 演示看板）
+    const owner = await getCurrentOwnerId();
+    const report = await addReport(owner, summary, mood, details);
     if (["开心", "平静", "低落", "想念", "担忧", "紧急"].includes(mood)) {
-      await addMood(mood, summary.slice(0, 20));
+      await addMood(owner, mood, summary.slice(0, 20));
     }
 
     return { saved: true, report };

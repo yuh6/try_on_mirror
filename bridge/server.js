@@ -43,29 +43,30 @@ const VAD_SILENCE_MS = Number(process.env.VAD_SILENCE_MS || 2000);
 
 /* ---------- 档案 + 实时上下文（时间/真实天气） ---------- */
 
-const profileCache = { at: 0, profile: null };
+const profileCache = new Map(); // token -> {at, profile}
 
-async function loadProfile() {
-  if (Date.now() - profileCache.at < 300_000 && profileCache.profile) {
-    return profileCache.profile; // 5 分钟缓存
+async function loadProfile(userToken) {
+  const cached = profileCache.get(userToken);
+  if (cached && Date.now() - cached.at < 300_000 && cached.profile) {
+    return cached.profile; // 5 分钟缓存
   }
   try {
+    const headers = userToken ? { Cookie: `xmn_session=${userToken}` } : {};
     const res = await fetch(`${WEBSITE}/api/profile`, {
+      headers,
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
       const p = await res.json();
       if (p && (p.name || p.title)) {
-        profileCache.profile = p;
-        profileCache.at = Date.now();
+        profileCache.set(userToken, { at: Date.now(), profile: p });
         return p;
       }
     }
   } catch {
     /* 网站不可达，用兜底档案 */
   }
-  profileCache.profile = FALLBACK_PROFILE;
-  profileCache.at = Date.now();
+  profileCache.set(userToken, { at: Date.now(), profile: FALLBACK_PROFILE });
   return FALLBACK_PROFILE;
 }
 
@@ -170,9 +171,10 @@ wss.on("connection", (browserWs) => {
         send({ t: "error", message: "桥未配置 DASHSCOPE_API_KEY" });
         return;
       }
+      const userToken = typeof msg.token === "string" ? msg.token : "";
       log("接听，正在准备档案和实时信息…");
       (async () => {
-        const profile = await loadProfile();
+        const profile = await loadProfile(userToken);
         let liveCtx = "";
         try {
           liveCtx = await getLiveContext(profile.living || "大连");

@@ -1,11 +1,12 @@
 /**
- * 家庭留言板数据层（移植自 callinggrandma 的 src/family_board.py）。
+ * 家庭留言板数据层（多账号版）。
  *
- * Flask 版读写 family_board.json；这里改为 Turso/libsql 数据库。
- * 对外的数据结构与 Flask 版 /api/data 完全一致。
+ * owner = ""  → 演示数据（张阿姨）
+ * owner = userId → 该注册用户的私有数据
+ * 所有读写都按 owner 隔离。
  */
 import { randomUUID } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   boardMessages,
@@ -47,7 +48,7 @@ function genId(): string {
   return randomUUID().replace(/-/g, "").slice(0, 8);
 }
 
-/* ---------- 对外数据结构（与 Flask 版 JSON 一致） ---------- */
+/* ---------- 对外数据结构（字段与原 JSON 一致） ---------- */
 
 export interface BoardMessage {
   id: string;
@@ -89,7 +90,11 @@ export interface BoardStats {
 
 /* ---------- 留言 ---------- */
 
-export async function addMessage(text: string, fromWho = "子女"): Promise<BoardMessage> {
+export async function addMessage(
+  owner: string,
+  text: string,
+  fromWho = "子女"
+): Promise<BoardMessage> {
   const msg: BoardMessage = {
     id: genId(),
     from: fromWho,
@@ -99,6 +104,7 @@ export async function addMessage(text: string, fromWho = "子女"): Promise<Boar
   };
   await db.insert(boardMessages).values({
     id: msg.id,
+    owner,
     fromWho: msg.from,
     text: msg.text,
     time: msg.time,
@@ -107,10 +113,11 @@ export async function addMessage(text: string, fromWho = "子女"): Promise<Boar
   return msg;
 }
 
-export async function getAllMessages(): Promise<BoardMessage[]> {
+export async function getAllMessages(owner: string): Promise<BoardMessage[]> {
   const rows = await db
     .select()
     .from(boardMessages)
+    .where(eq(boardMessages.owner, owner))
     .orderBy(desc(boardMessages.time));
   return rows.map((r) => ({
     id: r.id,
@@ -121,9 +128,18 @@ export async function getAllMessages(): Promise<BoardMessage[]> {
   }));
 }
 
+export async function deleteMessage(owner: string, id: string): Promise<boolean> {
+  const deleted = await db
+    .delete(boardMessages)
+    .where(and(eq(boardMessages.owner, owner), eq(boardMessages.id, id)))
+    .returning({ id: boardMessages.id });
+  return deleted.length > 0;
+}
+
 /* ---------- 汇报 ---------- */
 
 export async function addReport(
+  owner: string,
   summary: string,
   mood = "",
   details = ""
@@ -135,14 +151,15 @@ export async function addReport(
     mood,
     details,
   };
-  await db.insert(boardReports).values(report);
+  await db.insert(boardReports).values({ ...report, owner });
   return report;
 }
 
-export async function getAllReports(): Promise<BoardReport[]> {
+export async function getAllReports(owner: string): Promise<BoardReport[]> {
   const rows = await db
     .select()
     .from(boardReports)
+    .where(eq(boardReports.owner, owner))
     .orderBy(desc(boardReports.time));
   return rows.map((r) => ({
     id: r.id,
@@ -153,14 +170,22 @@ export async function getAllReports(): Promise<BoardReport[]> {
   }));
 }
 
+export async function deleteReport(owner: string, id: string): Promise<boolean> {
+  const deleted = await db
+    .delete(boardReports)
+    .where(and(eq(boardReports.owner, owner), eq(boardReports.id, id)))
+    .returning({ id: boardReports.id });
+  return deleted.length > 0;
+}
+
 /* ---------- 待办 ---------- */
 
-export async function getAllTodos(): Promise<BoardTodo[]> {
+export async function getAllTodos(owner: string): Promise<BoardTodo[]> {
   const rows = await db
     .select()
     .from(boardTodos)
+    .where(eq(boardTodos.owner, owner))
     .orderBy(desc(boardTodos.time));
-  // 未完成的排在前面（与 Python 版一致）
   return rows
     .map((r) => ({ id: r.id, text: r.text, done: r.done, time: r.time }))
     .sort((a, b) => Number(a.done) - Number(b.done));
@@ -168,34 +193,57 @@ export async function getAllTodos(): Promise<BoardTodo[]> {
 
 /* ---------- 心情 ---------- */
 
-export async function addMood(mood: string, note = ""): Promise<BoardMood> {
+export async function addMood(
+  owner: string,
+  mood: string,
+  note = ""
+): Promise<BoardMood> {
   const record: BoardMood = {
     date: todayStr(),
     mood,
     note,
     time: nowStr(),
   };
-  // 同一天只保留最新一条（date 是主键，upsert 覆盖）
   await db
     .insert(boardMoods)
-    .values(record)
-    .onConflictDoUpdate({ target: boardMoods.date, set: record });
+    .values({ ...record, owner })
+    .onConflictDoUpdate({
+      target: [boardMoods.owner, boardMoods.date],
+      set: { mood, note, time: record.time },
+    });
   return record;
 }
 
-export async function getAllMoods(): Promise<BoardMood[]> {
-  const rows = await db.select().from(boardMoods).orderBy(desc(boardMoods.date));
-  return rows.map((r) => ({ date: r.date, mood: r.mood, note: r.note, time: r.time }));
+export async function getAllMoods(owner: string): Promise<BoardMood[]> {
+  const rows = await db
+    .select()
+    .from(boardMoods)
+    .where(eq(boardMoods.owner, owner))
+    .orderBy(desc(boardMoods.date));
+  return rows.map((r) => ({
+    date: r.date,
+    mood: r.mood,
+    note: r.note,
+    time: r.time,
+  }));
+}
+
+export async function deleteMood(owner: string, date: string): Promise<boolean> {
+  const deleted = await db
+    .delete(boardMoods)
+    .where(and(eq(boardMoods.owner, owner), eq(boardMoods.date, date)))
+    .returning({ date: boardMoods.date });
+  return deleted.length > 0;
 }
 
 /* ---------- 统计 ---------- */
 
-export async function getStats(): Promise<BoardStats> {
+export async function getStats(owner: string): Promise<BoardStats> {
   const [messages, reports, todos, moods] = await Promise.all([
-    getAllMessages(),
-    getAllReports(),
-    getAllTodos(),
-    getAllMoods(),
+    getAllMessages(owner),
+    getAllReports(owner),
+    getAllTodos(owner),
+    getAllMoods(owner),
   ]);
   return {
     total_messages: messages.length,
@@ -206,15 +254,17 @@ export async function getStats(): Promise<BoardStats> {
   };
 }
 
-/* ---------- 老人档案（单行 JSON 文档） ---------- */
+/* ---------- 老人档案（每个 owner 一行） ---------- */
 
-const PROFILE_ID = "main";
+function profileId(owner: string): string {
+  return owner ? `u_${owner}` : "main";
+}
 
-export async function loadElderProfile(): Promise<ElderProfile> {
+export async function loadElderProfile(owner: string): Promise<ElderProfile> {
   const rows = await db
     .select()
     .from(elderProfiles)
-    .where(eq(elderProfiles.id, PROFILE_ID));
+    .where(eq(elderProfiles.owner, owner));
   if (rows.length === 0) return { ...EMPTY_ELDER_PROFILE };
   try {
     return { ...EMPTY_ELDER_PROFILE, ...JSON.parse(rows[0].data) };
@@ -223,31 +273,36 @@ export async function loadElderProfile(): Promise<ElderProfile> {
   }
 }
 
-export async function saveElderProfile(profile: ElderProfile): Promise<void> {
+export async function saveElderProfile(
+  owner: string,
+  profile: ElderProfile
+): Promise<void> {
   const data = JSON.stringify(profile);
   const existing = await db
     .select({ id: elderProfiles.id })
     .from(elderProfiles)
-    .where(eq(elderProfiles.id, PROFILE_ID));
+    .where(eq(elderProfiles.owner, owner));
   if (existing.length > 0) {
     await db
       .update(elderProfiles)
       .set({ data, updatedAt: new Date() })
-      .where(eq(elderProfiles.id, PROFILE_ID));
+      .where(eq(elderProfiles.owner, owner));
   } else {
-    await db.insert(elderProfiles).values({ id: PROFILE_ID, data });
+    await db
+      .insert(elderProfiles)
+      .values({ id: profileId(owner), owner, data });
   }
 }
 
 /* ---------- 汇总（/api/data） ---------- */
 
-export async function getAllData() {
+export async function getAllData(owner: string) {
   const [profile, messages, reports, todos, moods] = await Promise.all([
-    loadElderProfile(),
-    getAllMessages(),
-    getAllReports(),
-    getAllTodos(),
-    getAllMoods(),
+    loadElderProfile(owner),
+    getAllMessages(owner),
+    getAllReports(owner),
+    getAllTodos(owner),
+    getAllMoods(owner),
   ]);
   return {
     elder_profile: profile,

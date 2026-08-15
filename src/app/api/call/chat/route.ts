@@ -3,6 +3,7 @@ import { handleApiRoute } from "@/lib/api-helpers";
 import { AppError } from "@/lib/errors";
 import { qwenChat, isQwenConfigured } from "@/lib/qwen";
 import { loadElderProfile } from "@/lib/family-board";
+import { getCurrentOwnerId } from "@/lib/auth";
 import {
   buildCallPersona,
   FALLBACK_PROFILE,
@@ -92,8 +93,9 @@ export async function POST(request: Request) {
     const json = await request.json().catch(() => null);
     const body = bodySchema.parse(json ?? {});
 
-    // 档案：优先数据库（子女在档案页改的内容会直接影响通话）
-    const profile = await loadElderProfile().catch(() => FALLBACK_PROFILE);
+    // 档案：当前登录人的（未登录=张阿姨演示档案）
+    const owner = await getCurrentOwnerId();
+    const profile = await loadElderProfile(owner).catch(() => FALLBACK_PROFILE);
     const persona = buildCallPersona(profile.name ? profile : FALLBACK_PROFILE);
 
     const liveCtx = await getLiveContext(profile.living || "大连");

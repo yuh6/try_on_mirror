@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getAllReports, getAllTodos } from "@/lib/family-board";
+import { getCurrentOwnerId } from "@/lib/auth";
 import { AutoRefresh } from "./auto-refresh";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,11 @@ const MOOD_EMOJI: Record<string, string> = {
 };
 
 export default async function ReportsPage() {
-  const [reports, todos] = await Promise.all([getAllReports(), getAllTodos()]);
+  const owner = await getCurrentOwnerId();
+  const [reports, todos] = await Promise.all([
+    getAllReports(owner),
+    getAllTodos(owner),
+  ]);
 
   return (
     <main className="font-zh min-h-screen" style={{ background: "#E3E5E6" }}>

@@ -10,11 +10,23 @@ import { sql } from "drizzle-orm";
 
 /* ============================================================
  * 小棉袄 —— 子女端数据表
+ * owner 归属：'' = 演示数据（张阿姨）；其他 = 对应 userId 的私有数据
  * ============================================================ */
 
-/** 老人档案：单行 JSON 文档（id 固定为 "main"） */
+/** 注册用户 */
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/** 老人档案：每个 owner 一行 JSON 文档 */
 export const elderProfiles = sqliteTable("elder_profiles", {
   id: text("id").primaryKey(),
+  owner: text("owner").notNull().default(""),
   data: text("data").notNull(), // elder_profile JSON 字符串
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
@@ -26,6 +38,7 @@ export const boardMessages = sqliteTable(
   "board_messages",
   {
     id: text("id").primaryKey(),
+    owner: text("owner").notNull().default(""),
     fromWho: text("from_who").notNull(),
     text: text("text").notNull(),
     time: text("time").notNull(), // "YYYY-MM-DD HH:mm:ss"
@@ -33,7 +46,7 @@ export const boardMessages = sqliteTable(
       .notNull()
       .default(false),
   },
-  (t) => [index("idx_board_messages_time").on(t.time)]
+  (t) => [index("idx_board_messages_owner").on(t.owner)]
 );
 
 /** AI 通话汇报 */
@@ -41,12 +54,13 @@ export const boardReports = sqliteTable(
   "board_reports",
   {
     id: text("id").primaryKey(),
+    owner: text("owner").notNull().default(""),
     time: text("time").notNull(),
     summary: text("summary").notNull(),
     mood: text("mood").notNull().default(""),
     details: text("details").notNull().default(""),
   },
-  (t) => [index("idx_board_reports_time").on(t.time)]
+  (t) => [index("idx_board_reports_owner").on(t.owner)]
 );
 
 /** 待办（小棉建议子女做的事） */
@@ -54,20 +68,26 @@ export const boardTodos = sqliteTable(
   "board_todos",
   {
     id: text("id").primaryKey(),
+    owner: text("owner").notNull().default(""),
     text: text("text").notNull(),
     done: integer("done", { mode: "boolean" }).notNull().default(false),
     time: text("time").notNull(),
   },
-  (t) => [index("idx_board_todos_time").on(t.time)]
+  (t) => [index("idx_board_todos_owner").on(t.owner)]
 );
 
-/** 心情记录（同一天只保留最新一条，date 为主键） */
-export const boardMoods = sqliteTable("board_moods", {
-  date: text("date").primaryKey(), // "YYYY-MM-DD"
-  mood: text("mood").notNull(),
-  note: text("note").notNull().default(""),
-  time: text("time").notNull(),
-});
+/** 心情记录（同一 owner 同一天只保留最新一条） */
+export const boardMoods = sqliteTable(
+  "board_moods",
+  {
+    date: text("date").notNull(), // "YYYY-MM-DD"
+    owner: text("owner").notNull().default(""),
+    mood: text("mood").notNull(),
+    note: text("note").notNull().default(""),
+    time: text("time").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.owner, t.date] })]
+);
 
 export type ElderProfileRow = typeof elderProfiles.$inferSelect;
 export type BoardMessageRow = typeof boardMessages.$inferSelect;

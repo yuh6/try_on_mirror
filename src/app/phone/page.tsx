@@ -326,6 +326,16 @@ export default function PhonePage() {
   }, [screen]);
 
   /* ---------- 真人语音模式（桥 ⇄ 千问 Realtime） ---------- */
+  const authTokenRef = useRef<string | null>(null); // 登录会话（桥用它查"你账号"的档案）
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d: { token?: string | null }) => {
+        authTokenRef.current = d.token ?? null;
+      })
+      .catch(() => {});
+  }, []);
+
   const rtWsRef = useRef<WebSocket | null>(null);
   const micCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -425,7 +435,7 @@ export default function PhonePage() {
       const timer = setTimeout(() => done(false), 8000); // 8 秒没就绪就降级
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ t: "answer" }));
+        ws.send(JSON.stringify({ t: "answer", token: authTokenRef.current || "" }));
       };
       ws.onmessage = (ev) => {
         let msg: { t: string; text?: string; a?: string; on?: boolean; message?: string };

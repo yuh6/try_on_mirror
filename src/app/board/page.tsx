@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getAllData, getStats } from "@/lib/family-board";
+import { getCurrentOwnerId } from "@/lib/auth";
 import { MessageForm } from "./message-form";
 import { CalendarCard } from "./calendar";
 
@@ -18,8 +19,9 @@ const MOOD_EMOJI: Record<string, string> = {
 };
 
 export default async function BoardPage() {
+  const owner = await getCurrentOwnerId(); // 未登录=演示数据
   const [{ elder_profile: profile, messages, reports, todos, moods }, stats] =
-    await Promise.all([getAllData(), getStats()]);
+    await Promise.all([getAllData(owner), getStats(owner)]);
 
   // 服务器的"今天"（东八区），日历以它为准，不信任浏览器时钟
   const todayISO = new Intl.DateTimeFormat("sv-SE", {

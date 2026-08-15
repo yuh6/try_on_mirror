@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AOS from "aos";
 import "aos/dist/aos.css";
+import { AuthNav } from "@/components/auth-nav";
 
 export default function HomePage() {
   const router = useRouter();
@@ -135,6 +136,7 @@ export default function HomePage() {
             >
               档案
             </Link>
+            <AuthNav dark />
             <Link
               href="/profile/new"
               className="btn-ghost text-[#192830] bg-white border border-[#192830] rounded-[6px] px-[18px] py-[4px] text-[16px] tracking-[-0.32px]"
